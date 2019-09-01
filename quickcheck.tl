@@ -76,8 +76,8 @@
 ;; Run the profiler n times on each function in fnlst with the same list of args supplied to each call,
 ;; and report results.
 ;; TODO - use with-gensyms to avoid variable capture
-(defmacro proffns (n fnlst args)
-  ^(let* ((stats (list ,*(mapcar (ret ^(profn ,n nil (apply ',@1 ,args))) fnlst)))
+(defmacro proffns (n fnlst . args)
+  ^(let* ((stats (list ,*(mapcar (ret ^(profn ,n nil (apply ',@1 (list ,*args)))) fnlst)))
 	  (cwidths (mapcar (op apply max (length (symbol-name @1))
 			       (mapcar (opip tostring length) (flatten @2))) 
 			   ',fnlst stats))
