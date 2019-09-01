@@ -80,7 +80,7 @@
 	   ;; stream   = output stream
 	   ;; Note: indexing with ranges is python-style - the end value is not included.	   
 	   (:method printdata (self : rowids colids (inchead t) pretty-p (stream *stdout*))
-		    (let* ((rx (regex-compile (cat-str (list self.sep "|\""))))
+		    (let* ((rx (regex-compile ^(or ,self.sep "|\"")))
 			   (fieldquotedp (ret (= #\" (chr-str @1 0)
 						 (chr-str @1 (- (length @1) 1)))))
 			   (badfieldp (andf 'stringp rx (notf fieldquotedp)))
@@ -253,7 +253,7 @@
 		    (cat-str (interpose sep header))
 		  (get-line stream)))
 	 (rownum (if header 0 1))
-	 (fieldrx (regex-compile
+	 (fieldrx (regex-compile ;; using a regex object here messes with emacs syntax highlighting
 		   "([^,\"\']*(\"([^\"]|\\\\\")*\"|\'([^\']|\\\\\')*\'|)[^,\"\']*)+"))
 	 (selpts (op select @2 (range* @1 (length @2) 2))) ;; extracts odd/even indexed entries of list
 	 (splitpts (chain (op sub (tok fieldrx t @1) 1 -1) 
