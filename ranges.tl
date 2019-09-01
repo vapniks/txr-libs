@@ -11,12 +11,46 @@
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument if it is unreversed
 ;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil.
-;; All 3 functions return nil with an input of nil.
-(defun rrev (r) (and r (rcons (to r) (from r))))
-(defun rrevp (r) (and r (< (to r) (from r))))
+;; rlen returns the length of its range argument, or 'inf if it is an infinite range.
+;; All 4 functions return nil with an input of nil.
+(defun rrev (r) (and r (if (rangep (to r))
+			   (rcons (from (to r))
+				  (rcons (from r) (- (to (to r)))))
+			 (rcons (to r) (from r)))))
+(defun rrevp (r) (and r (if (rangep (to r))
+			    (< (from (to r)) (from r))
+			  (< (to r) (from r)))))
 (defun rrev* (r : unrev) (if (rrevp r)
 			     (if unrev (rrev r) r)
 			   (if unrev r (rrev r))))
+(defun rlen (r) (cond ((null r) r)
+		      ((eq (to r) :) 'inf)
+		      ((eq (from r) :)
+		       (+ 1 (abs (if (rangep (to r))
+				     (from (to r))
+				   (to r)))))
+		      ((rangep (to r))
+		       (if (or (eq (from (to r)) :)
+			       (= (signum (- (from r) (from (to r))))
+				  (signum (to (to r)))))
+			   'inf
+			 (int-flo (ceil (/ (+ (abs (- (from (to r)) (from r))) 1)
+					   (abs (to (to r))))))))
+		      (t (+ (abs (length r)) 1))))
+
+(defun rlen2 (r) (if r (cond ((eq (to r) :) 'inf)
+			     ((eq (from r) :)
+			      (+ 1 (abs (if (rangep (to r))
+					    (from (to r))
+					  (to r)))))
+			     ((rangep (to r))
+			      (if (or (eq (from (to r)) :)
+				      (= (signum (- (from r) (from (to r))))
+					 (signum (to (to r)))))
+				  'inf
+				(int-flo (ceil (/ (+ (abs (- (from (to r)) (from r))) 1)
+						  (abs (to (to r))))))))
+			     (t (+ (abs (length r)) 1)))))
 ;; rsplit splits its range argument at n into two disjoint ranges returned in a cons cell,
 ;; or if n is a list, into more than two ranges.
 ;; By default the endpoint of a returned range to the left of a split point will be set to
@@ -116,9 +150,11 @@
 	     (split lst (mapcar (op posq @1 lst) ns)))))
 
 ;; return a list of all ends points of ranges in args, ignoring nil values
+;; TODO - should this return 'inf for infinite ranges?
 (defun rends args
   (let ((args2 (remove-if 'null args)))
-    (remove-if 'null (nconc (mapcar 'from args2) (mapcar 'to args2)))))
+    (remove-if 'null (nconc (mapcar 'from args2)
+			    (mapcar (chain 'to (iffi 'rangep 'from)) args2)))))
 
 ;; rmin & rmax return the smallest and largest endpoints of the ranges supplied in args,
 ;; and rspan returns a single range spanning all its args.
