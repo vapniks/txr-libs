@@ -49,8 +49,7 @@
         (orig (gensym))
         (iter (gensym)))
     (unless places
-      (compile-error "~s: require one or more places followed by expression"
-                     'lset))
+      (compile-error '(lpush) "Require one or more places followed by expression"))
     ^(let* ((,orig ,(car source))
             (,iter ,orig))
        ,*(butlast (mappend (ret ^((push (car ,iter) ,@1) (set ,iter (cdr ,iter))))
