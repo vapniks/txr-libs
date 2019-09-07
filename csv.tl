@@ -152,7 +152,7 @@
 	   (:method length (self) (length self.data))
 	   (:method filesize (self)
 		    (apply '+ (* self.(length) self.ncols)
-			   (mapcar (op apply '+ (mapcar 'length @1)) self.data)))
+			   (mapcar (op sum (mapcar 'length @1)) self.data)))
 	   (:method car (self) (car self.data))
 	   (:method cdr (self) (cdr self.data))
 	   (:method rplaca (self newcar) (set (car self.data) newcar))
