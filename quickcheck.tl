@@ -24,7 +24,7 @@
 (defmacro mtest (. pairs) ^(progn ,*(mapcar (op cons 'test) (tuples 2 pairs))))
 
 ;; some basic stats functions
-(defun mean args (/ (apply '+ args) (length args)))
+(defun mean args (/ (sum args) (length args)))
 
 (defun median args
   (let ((len (length args))
@@ -36,7 +36,7 @@
 	 2))))
 
 (defun var args (let ((m (apply 'mean args)))
-		  (/ (apply '+ (mapcar (opip (- @1 m) square) args))
+		  (/ (sum (mapcar (opip (- @1 m) square) args))
 		     (- (len args) 1))))
 
 (defun stdev args (sqrt (apply 'var args)))
@@ -56,8 +56,7 @@
                            places))
        ,orig)))
 
-;; Run the profiler on body n times, and print mean & variances of profiling info.
-;; TODO - use with-gensyms to avoid variable capture
+;; Run the profiler on body n times, and if print is t print mean & variances of profiling info.
 (defmacro profn (n print . body)
   (with-gensyms (times mbytes gcbytes res)
 		^(let* (,times ,mbytes ,gcbytes ,res)
@@ -75,7 +74,7 @@
 				     '(mean stdev))))))
 
 ;; Run the profiler n times on each function in fnlst (an unquoted list) with the same
-;; list of args supplied to each call, and report results.
+;; args supplied to each call, and report results.
 (defmacro proffns (n fnlst . args)
   (with-gensyms (stats cwidths hline cmplxs)
 		^(let* ((,stats (list ,*(mapcar (ret ^(profn ,n nil (apply ',@1 (list ,*args)))) fnlst)))
