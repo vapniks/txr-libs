@@ -135,9 +135,9 @@
 ;; return a list of all ends points of ranges in args, ignoring nil values
 ;; TODO - should this return 'inf for infinite ranges?
 (defun rends args
-  (let ((args2 (remove-if 'null args)))
-    (remove-if 'null (nconc (mapcar 'from args2)
-			    (mapcar (chain 'to (iffi 'rangep 'from)) args2)))))
+  (let ((args2 (remq nil args)))
+    (remq nil (nconc (mapcar 'from args2)
+		     (mapcar (chain 'to (iffi 'rangep 'from)) args2)))))
 
 ;; rmin & rmax return the smallest and largest endpoints of the ranges supplied in args,
 ;; and rspan returns a single range spanning all its args.
@@ -177,7 +177,7 @@
 		  (cons (rcons (from r1) (to r2)) (cdr @1)))
 		 (t (cons r2 @1))))
 	 (mapcar (opip last car) ;; for each start point keep longest range
-		 (partition-by 'from (apply 'rsort (remove-if 'null args))))
+		 (partition-by 'from (apply 'rsort (remq nil args))))
 	 nil)))
 
 ;; risec returns a single range representing the intersection of its argument ranges,
@@ -270,7 +270,7 @@
 				      [accum (from h)..(if (rangep b) (to b) b)]
 				      (cons b a)))
 				 (t (cons b a)))))
-			   (remove-if 'null lst)
+			   (remq nil lst)
 			   nil)))
     (when (numberp (car res))
       (set (car res) (car res)..(car res)))

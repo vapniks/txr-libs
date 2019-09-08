@@ -273,7 +273,7 @@
 						  ((? 0+ 1+ ~) '(1)))
 					   (cons (+ l xtra) nil))))))
 			  (cons (car elems) ^(,this ,*(if (eq this 'compound)
-							  (remove-if 'null (cdr elems))
+							  (remq nil (cdr elems))
 							(mapcar
 							 (ret (or @1 (rndelem allchars)))
 							 (cdr elems))))))))

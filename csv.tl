@@ -272,7 +272,7 @@
 	 (fnlist (mapcar 'and
 			 (list emptystr trim unquote fixchars)
 			 (list fillempty 'trim-str rmquotes rmbadchars)))
-	 (fieldfn (if (some fnlist) (apply 'chain (remove-if 'null fnlist)))))
+	 (fieldfn (if (some fnlist) (apply 'chain (remq nil fnlist)))))
     (if [invalidp headerpts]
       (throw 'csvdata-error
 	     (cat-str (list (if header "Header" "First") " row is invalid")))
