@@ -74,7 +74,8 @@
 				     '(mean stdev))))))
 
 ;; Run the profiler n times on each function in fnlst (an unquoted list) with the same
-;; args supplied to each call, and report results.
+;; args supplied to each call, and report results. The elements of fnlst can be symbols
+;; representing functions, lambda forms, or other forms which return functions (op, ip, ret, etc).
 (defmacro proffns (n fnlst . args)
   (with-gensyms (stats cwidths hline cmplxs fnnames)
 		^(let* ((,stats (list ,*(mapcar (ret ^(profn ,n nil
@@ -93,7 +94,6 @@
 			(,cmplxs ',(mapcar 'fncomplexity fnlst)))
 		   (format t "Args: ~a\n" (list ,*args))
 		   (pprinl ,hline)
-		   ;;(format t "~^56a" "Function order for each mean stat (low to high)\n")
 		   (format t "~18a : " "Function")
 		   (mapdo (op format t "~*a | ") ,cwidths ,fnnames)
 		   (format t "\n~a\n" ,hline)
