@@ -114,3 +114,26 @@
 			      (if (and fillp (listp head))
 				  (pad head fill (- m (len head)))
 				head))))))
+
+;; cum-iter creates a list/lcons containing the cumulative partial sums
+;; of its argument list/lcons.
+(defun cum-seq (seq)
+  (let ((seq (if (seq-iterp seq)
+		 seq
+	       (seq-begin seq))))
+    (expand-right (ret (let* ((val (seq-next (cdr @1) nil)))
+			 (when val
+			   (let ((sum (+ (car @1) val)))
+			     (cons sum (cons sum seq))))))
+		  (cons 0 seq))))
+
+;; diff-seq creates a list/lcons containing the first differences of
+;; its argument list/lcons. The first value will be the same as the
+;; first value of the input seq
+(defun diff-seq (seq)
+  (let ((seq (if (seq-iterp seq)
+		 seq
+	       (seq-begin seq))))
+    (expand-right (ret (let* ((val (seq-next (cdr @1) nil)))
+			 (when val (cons (- val (car @1)) (cons val seq)))))
+		  (cons 0 seq))))
