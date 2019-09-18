@@ -46,10 +46,7 @@
 ;; len   = range of allowed lengths of ranges (can also be a single number)
 ;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned
 ;; step  = optional step size for ranges; can be an integer for a fixed step size,
-;; or a range for step sizes chosen uniformely at random within the range,
-;; or a floating point number between 0 & 1 for step sizes chosen uniformely at random
-;; between 1 and step multiplied by the range length (e.g. if range is 0..10 and step
-;; is 0.5 then a step size will be chosen at random from '(1 2 3 4 5))
+;;         or a range for step sizes chosen uniformely at random within the range,
 ;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the endpoint of ranges.
 ;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
 (defun rndrngs (: fr tr len dir step inf)
@@ -74,15 +71,8 @@
 		     (iff 'less (flipargs 'rcons) 'rcons))))
 	 (rnglst (keep-if* pred (mapcar* joinfn (rndints fr)
 					 (if inf (rndelems (rlist tr :)) (rndints tr))))))
-    (if step (mapcar* (ret (rcons (from @1)
-				  (rcons (to @1)
-					 (if (fixnump @2)
-					     @2
-					   (let* ((l1 (len @1))
-						  (sgn (signum l1))
-						  (l2 (round (* l1 @2))))
-					     (* sgn (+ 1 (rand (max 1 (* sgn (int-flo l2)))))))))))
-		      rnglst (rndints step))
+    (if step
+	(mapcar* (ret (rcons (from @1) (rcons (to @1) @2))) rnglst (rndints step))
       rnglst)))
 
 ;; Create a lazy list of random elements taken uniformely from list "incl",
