@@ -50,9 +50,11 @@
 ;; or a floating point number between 0 & 1 for step sizes chosen uniformely at random
 ;; between 1 and step multiplied by the range length (e.g. if range is 0..10 and step
 ;; is 0.5 then a step size will be chosen at random from '(1 2 3 4 5))
-(defun rndrngs (: (fr 0..10) (tr 0..10) len dir step)
-  (let* ((fr (if (numberp fr) fr..fr fr))
-	 (tr (if (numberp tr) tr..tr tr))
+;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the endpoint of ranges.
+;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
+(defun rndrngs (: fr tr len dir step inf)
+  (let* ((fr (if (numberp fr) fr..fr (or fr 0..10)))
+	 (tr (if (numberp tr) tr..tr (or tr 0..10)))
 	 (fr1 (min (from fr) (to fr)))
 	 (fr2 (max (from fr) (to fr)))
 	 (tr1 (min (from tr) (to tr)))
@@ -70,7 +72,8 @@
 	 (joinfn (if (memq dir '(nil 0)) 'rcons
 		   (if (> dir 0) (iff 'less 'rcons (flipargs 'rcons))
 		     (iff 'less (flipargs 'rcons) 'rcons))))
-	 (rnglst (keep-if* pred (mapcar* joinfn (rndints fr) (rndints tr)))))
+	 (rnglst (keep-if* pred (mapcar* joinfn (rndints fr)
+					 (if inf (rndelems (rlist tr :)) (rndints tr))))))
     (if step (mapcar* (ret (rcons (from @1)
 				  (rcons (to @1)
 					 (if (fixnump @2)
