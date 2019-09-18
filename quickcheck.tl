@@ -146,6 +146,52 @@
 
 (defun runlengths (lst) (mapcar 'length (partition-by 'identity lst)))
 
+(defstruct qc-type nil
+	   iter
+	   (:method next (self) (seq-next self.iter nil)))
+
+(defstruct (qc-int : range) qc-type
+	   (range 0..9)
+	   (:postinit (self) (set self.iter (rndints* self.range))))
+
+(defstruct (qc-float : range) qc-type
+	   (range 0..1)
+	   (:postinit (self) (set self.iter (rndfloats* self.range))))
+
+(defstruct qc-bool qc-type
+	   (:postinit (self) (set self.iter (rndbools*))))
+
+(defstruct (qc-range : fr tr len dir step) qc-type
+	   (fr 0..10) (tr 0..10) len dir step
+	   (:postinit (self) (set self.iter (rndrngs* self.fr self.tr self.len
+						      self.dir self.step))))
+
+(defstruct (qc-elem incl : excl) qc-type
+	   incl excl
+	   (:postinit (self) (set self.iter (rndelems* self.incl self.excl))))
+
+(defstruct (qc-char : incl excl) qc-type
+	   (incl #\0..#\z) excl
+	   (:postinit (self) (set self.iter (rndchars* self.incl self.excl))))
+
+(defstruct (qc-string : arg1 arg2 arg3 filterx) qc-type
+	   arg1 arg2 arg3 filterx
+	   (:postinit (self) (set self.iter (rndstrings* self.arg1 self.arg2
+							 self.arg3 self.filterx))))
+
+(defstruct (qc-regex : lengths maxd allowed regex okchr) qc-type
+	   (lengths 1..20) (maxd 5) allowed regex okchr
+	   (:postinit (self) (set self.iter (rndregexs* self.lengths self.maxd
+							self.allowed self.regex self.okchr))))
+
+(defstruct (qc-list seq : n uniq) qc-type
+	   seq (n 1..10) uniq
+	   (:postinit (self) (set self.iter (rndlists* self.seq self.n self.uniq))))
+
+(defstruct (qc-vector seq : n uniq) qc-type
+	   seq (n 1..10) uniq
+	   (:postinit (self) (set self.iter (rndvecs* self.seq self.n self.uniq))))
+
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
 ;; then an error message is emitted. This is repeated n times.
@@ -154,37 +200,44 @@
 ;; e.g. the following 3 values for pred yield the same results; 'equal, (equal @1 @2) & (equal results args)
 ;; If "printres" is non-nil then for each invocation of "func" the arguments and results
 ;; of that call are printed.
-;; The args of func used in the macro call can contain random iterators which will be
-;; replaced with correspoding values retrieved from those iterators before calling func.
-;; This is done by testing the name of the symbols in args recursively. Any
-;; form whose initial symbol name matches the regexp "rnd.*\*" will be replaced with a call
-;; to "seq-next" on that iterator when func is called. The search is done recursively
-;; so you can use lists of iterators, etc.
-;; e.g. (rrev (rndrngs* (rndrngs*) (rndrngs*))) is replaced by
-;; (apply 'rrev (list (seq-next (rndrngs* (seq-next (rndrngs*) nil) (seq-next (rndrngs*) nil)) nil)))
+;; The args of func used in the macro call can contain struct objects with supertype qc-type (e.g. qc-int, qc-string, etc).
+;; The "next" member function of these objects will be used to generate new arguments to be tested.
+;; e.g. (rrev (new (qc-range -10..10 -10..10))) will call rrev with random ranges whose endpoints are between -10 & 10.
+;; Note: you can create your own qc struct types to use with quickcheck, but they must have qc-type as a supertype
+;; and they must initialize the "iter" member to an iterator (see above).
 
-;; TODO - add shrink facility like Haskells quickcheck? (working on rndlists*)
-;;        some way to check/ensure coverage of tests (functions to modify iterators?)
-
+;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
+;;        based on boolean attributes derived from arguments.
 (defmacro quickcheck (n (func . args) : pred prinres)
-  (labels ((swaparg (arg) (if (listp arg)
-			      (if (and (symbolp (car arg))
-				       (match-regex (symbol-name (car arg)) #/rnd.*\*/))
-				  ^(seq-next (,(car arg) ,*(mapcar (fun swaparg) (cdr arg))) nil)
-				  ^,(mapcar (fun swaparg) arg))
-			    (if (and (symbolp arg)
-				     (match-regex (symbol-name arg) #/rnd.*\*/))
-				^(seq-next ,arg nil)
-				arg))))
-    (let ((newargs1 [swaparg args]))
-      (with-gensyms (newargs2 results)
-		    ^(dotimes (i ,n)
-		       (let* ((,newargs2 (list ,*(mapcar (ret (if (symbolp @1) ^(quote ,@1) @1)) newargs1)))
-			      (,results (apply ',func ,newargs2)))
-			 ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs2 ,results))
-			 ,(when pred
-			    ^(if (not [,(if (functionp pred) pred
-					  (list 'ret ^(let ((results @1) (args @2)) ,pred)))
-				      ,results ,newargs2])
-				 (error "Predicate failed with args ~a" ,newargs2)))))))))
+  (with-gensyms (newargs results excpt pass i err args2 nextfn)
+		^(let (,newargs ,results ,excpt ,err
+				(,nextfn (iff (op subtypep (typeof @1) 'qc-type)
+					      (umeth next)
+					      'identity))
+				(,pass t) (,i 0)
+				(,args2 (list ,*args)))
+		   (while (and (< ,i ,n) ,pass)
+		     (set ,newargs (mapcar ,nextfn ,args2)
+			  ,results (catch* (apply ',func ,newargs) (error (e . a) e))
+			  ,excpt (car (memq ,results
+					    (remq t (uniq (flatten (exception-subtype-map))))))
+			  ,pass (and (not ,excpt)
+				     ,(if pred
+					  ^(call ,(if (functionp pred)
+						      pred
+						    (list 'ret ^(let ((results @1) (args @2))
+								  ,pred)))
+						 ,results ,newargs)
+					  t)))
+		     ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
+		     (inc ,i))
+		   (when ,excpt
+		     (error "Exception: ~a\nWhen function called with args: ~a"
+			    ,excpt ,newargs))
+		   ,(when pred ^(when (not ,pass)
+				  (error "Predicate failed with args ~a" ,newargs))))))
+
+
+
+
 
