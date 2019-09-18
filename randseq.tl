@@ -47,7 +47,7 @@
 ;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned
 ;; step  = optional step size for ranges; can be an integer for a fixed step size,
 ;;         or a range for step sizes chosen uniformely at random within the range,
-;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the endpoint of ranges.
+;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the start/endpoint of ranges.
 ;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
 (defun rndrngs (: fr tr len dir step inf)
   (let* ((fr (if (numberp fr) fr..fr (or fr 0..10)))
@@ -69,8 +69,9 @@
 	 (joinfn (if (memq dir '(nil 0)) 'rcons
 		   (if (> dir 0) (iff 'less 'rcons (flipargs 'rcons))
 		     (iff 'less (flipargs 'rcons) 'rcons))))
-	 (rnglst (keep-if* pred (mapcar* joinfn (rndints fr)
-					 (if inf (rndelems (rlist tr :)) (rndints tr))))))
+	 (fromnums (if inf (rndelems (rlist fr :)) (rndints fr)))
+	 (tonums (if inf (rndelems (rlist tr :)) (rndints tr)))
+	 (rnglst (keep-if* pred (mapcar* joinfn fromnums tonums))))
     (if step
 	(mapcar* (ret (rcons (from @1) (rcons (to @1) @2))) rnglst (rndints step))
       rnglst)))
