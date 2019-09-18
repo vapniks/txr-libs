@@ -40,30 +40,8 @@
 ;; that split point (i.e. treating ranges as not including their endpoints).
 ;; If inc is non-nil then the endpoint of a returned range will be one less/more than the
 ;; split point (depending on the direction of the range).
-;; TODO: compare with partition & partition* functions. Make sure this also works with char ranges.
+;; TODO: Make sure this also works with char ranges.
 (defun rsplit (r : (n 0) inc)
-  (labels ((fn (lst r ns) (let ((fr (from r))
-				(tr (to r))
-				(n (car ns)))
-			    (if (not (and n (/= fr tr)
-					  (or (= (signum (- n fr))
-						 (signum (- tr n)))
-					      (and inc (= n tr)))))
-				(list (append lst (list r)))  
-			      (if inc
-				  (fn (append lst (list (rcons fr [(if (> fr tr) '+ '-) n 1])))
-				      (rcons n tr)
-				      (cdr ns))
-				(fn (append lst (list (rcons fr n)))
-				    (rcons n tr)
-				    (cdr ns)))))))
-    (if (and (rangep r))
-	(let ((n (if (numberp n)
-		     (list n)
-		   (uniq (sort n)))))
-	  (car (fn nil r n))))))
-
-(defun rsplit2 (r : (n 0) inc)
   (labels ((fn (lst r ns) (let ((fr (from r))
 				(tr (to r))
 				(n (car ns)))
@@ -84,53 +62,6 @@
 		     (list n)
 		   (uniq (sort n)))))
 	  (reverse (car (fn nil r n)))))))
-
-(defun rsplit3 (r : (n 0) inc)
-  (let ((ns (if (numberp n) (list n) n)))
-    (if r 
-	(reverse (reduce-left (lambda (lst n)
-				(let ((fr (from (car lst)))
-				      (tr (to (car lst))))
-				  (if (not (and (/= fr tr)
-						(or (= (signum (- n fr))
-						       (signum (- tr n)))
-						    (and inc (= n tr)))))
-				      lst
-				    (if inc
-					(append (list (rcons n tr)
-						      (rcons fr [(if (> fr tr) '+ '-) n 1]))
-						(cdr lst))
-				      (append (list (rcons n tr) (rcons fr n))
-					      (cdr lst))))))
-			      (uniq (sort ns))
-			      (list r))))))
-
-(defun rsplit4 (r : (n 0) inc)
-  (let ((ns (if (numberp n) (list n) n)))
-    (if r
-	(reverse (reduce-left (lambda (lst n)
-				(let ((fr (from (car lst)))
-				      (tr (to (car lst))))
-				  (if (not (and (/= fr tr)
-						(or (= (signum (- n fr))
-						       (signum (- tr n)))
-						    (and inc (= n tr)))))
-				      lst
-				    (if inc
-					(cons (rcons n tr)
-					      (cons (rcons fr [(if (> fr tr) '+ '-) n 1])
-						    (cdr lst)))
-				      (cons (rcons n tr)
-					    (cons (rcons fr n)
-						  (cdr lst)))))))
-			      (uniq (sort ns))
-			      (list r))))))
-
-(defun rsplit5 (r : (n 0) inc) ;; TODO - fix
-  (let ((ns (if (numberp n) (list n) n))
-	(lst (call (if inc 'rlist 'rlist*) r)))
-    (mappend (if inc 'listr 'listr*) ;; TODO - can this be made simpler with collect-each*?
-	     (split lst (mapcar (op posq @1 lst) ns)))))
 
 ;; return a list of all ends points of ranges in args, ignoring nil values
 ;; TODO - should this return 'inf for infinite ranges?
