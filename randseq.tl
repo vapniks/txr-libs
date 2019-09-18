@@ -69,10 +69,14 @@
 	 (joinfn (if (memq dir '(nil 0)) 'rcons
 		   (if (> dir 0) (iff 'less 'rcons (flipargs 'rcons))
 		     (iff 'less (flipargs 'rcons) 'rcons))))
-	 (fromnums (if inf (rndelems (rlist fr :)) (rndints fr)))
-	 (tonums (if inf (rndelems (rlist tr :)) (rndints tr)))
+	 (fromnums (if (and inf (not len))
+		       (rndelems (rlist fr :))
+		     (rndints fr)))
+	 (tonums (if (and inf (not len))
+		     (rndelems (rlist tr :))
+		   (rndints tr)))
 	 (rnglst (keep-if* pred (mapcar* joinfn fromnums tonums))))
-    (if step
+    (if step ;; TODO make sure step is consistent with dir and len
 	(mapcar* (ret (rcons (from @1) (rcons (to @1) @2))) rnglst (rndints step))
       rnglst)))
 
