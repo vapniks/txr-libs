@@ -161,10 +161,10 @@
 (defstruct qc-bool qc-type
 	   (:postinit (self) (set self.iter (rndbools*))))
 
-(defstruct (qc-range : fr tr len dir step) qc-type
-	   (fr 0..10) (tr 0..10) len dir step
+(defstruct (qc-range : fr tr len dir step inf) qc-type
+	   (fr 0..10) (tr 0..10) len dir step (inf t)
 	   (:postinit (self) (set self.iter (rndrngs* self.fr self.tr self.len
-						      self.dir self.step))))
+						      self.dir self.step self.inf))))
 
 (defstruct (qc-elem incl : excl) qc-type
 	   incl excl
