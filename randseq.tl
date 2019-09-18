@@ -60,11 +60,11 @@
 	 (maxlen (+ 1 (- (max fr2 tr2) (min fr1 tr1))))
 	 (pred (or (typecase len
 		     (null 'true)
-		     (integer (if (in-range minlen..maxlen len)
-				  (opip length abs (+ 1) (= len))))
-		     (range (if (and (in-range minlen..maxlen (from len))
-				     (in-range minlen..maxlen (to len)))
-				(opip length abs (+ 1) (in-range len)))))
+		     (integer (when (in-range minlen..maxlen len)
+				(opip length abs (+ 1) (= len))))
+		     (range (when (and (in-range minlen..maxlen (from len))
+				       (in-range minlen..maxlen (to len)))
+			      (opip length abs (+ 1) (in-range len)))))
 		   (error "Invalid len arg: ~a" len)))
 	 (joinfn (if (memq dir '(nil 0)) 'rcons
 		   (if (> dir 0) (iff 'less 'rcons (flipargs 'rcons))
