@@ -235,7 +235,8 @@
 		     (error "Exception: ~a\nWhen function called with args: ~a"
 			    ,excpt ,newargs))
 		   ,(when pred ^(when (not ,pass)
-				  (error "Predicate failed with args ~a" ,newargs))))))
+				  (error "Predicate failed with args: ~a\nand results: ~a"
+					 ,newargs ,results))))))
 
 
 
