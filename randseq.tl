@@ -89,7 +89,7 @@
 		 rnglst (rndints step))
       rnglst)))
 
-;; Create a lazy list of random elements taken uniformely from list "incl",
+;; Create a lazy list of random elements taken uniformly from list "incl",
 ;; after removing any elements that are also in list "excl".
 ;; If any element of "incl" is an iterator, then values will be retrieved
 ;; from the iterator instead of returning a copy of the iterator itself.
