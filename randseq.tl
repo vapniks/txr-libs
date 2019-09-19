@@ -58,6 +58,7 @@
 	 (tr2 (max (from tr) (to tr)))
 	 (minlen (+ 1 (max 0 (- tr1 fr2) (- fr1 tr2))))
 	 (maxlen (+ 1 (- (max fr2 tr2) (min fr1 tr1))))
+	 (inf (and inf (not len)))
 	 (pred (or (typecase len
 		     (null 'true)
 		     (integer (when (in-range minlen..maxlen len)
@@ -69,15 +70,23 @@
 	 (joinfn (if (memq dir '(nil 0)) 'rcons
 		   (if (> dir 0) (iff 'less 'rcons (flipargs 'rcons))
 		     (iff 'less (flipargs 'rcons) 'rcons))))
-	 (fromnums (if (and inf (not len))
+	 (fromnums (if inf
 		       (rndelems (rlist fr :))
 		     (rndints fr)))
-	 (tonums (if (and inf (not len))
+	 (tonums (if inf
 		     (rndelems (rlist tr :))
 		   (rndints tr)))
 	 (rnglst (keep-if* pred (mapcar* joinfn fromnums tonums))))
-    (if step ;; TODO make sure step is consistent with dir and len
-	(mapcar* (ret (rcons (from @1) (rcons (to @1) @2))) rnglst (rndints step))
+    (if step ;; Make sure step is consistent with dir, len & inf 
+	(mapcar* (ret (rcons (from @1)
+			     (if (eq (abs @2) 1)
+				 (to @1)
+			       (rcons (to @1)
+				      (if inf @2
+					(let ((d (> (to @1) (from @1)))
+					      (s (max (abs @2) 1)))
+					  (if d s (- s))))))))
+		 rnglst (rndints step))
       rnglst)))
 
 ;; Create a lazy list of random elements taken uniformely from list "incl",
