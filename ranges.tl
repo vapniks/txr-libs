@@ -9,22 +9,20 @@
 ;; Some extra range functions (put them in a separate package)
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
-;; and rrev* is an idempotent version of rrev; it reverses its range argument if it is unreversed
+;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
 ;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil.
 ;; rlen returns the length of its range argument, or 'inf if it is an infinite range.
 ;; All 4 functions return nil with an input of nil.
-(defun rrev (r) (and r (if (rangep (to r))
-			   (rcons (from (to r))
-				  (rcons (from r) (- (to (to r)))))
-			 (rcons (to r) (from r)))))
-(defun rrevp (r) (and r (let ((fr (from r))
-			      (tr (if (rangep (to r))
-				      (from (to r))
-				    (to r))))
-			  (less tr fr))))
+(defun rrev (r) (when r (if (rangep (to r))
+			    (rcons (from (to r))
+				   (rcons (from r) (- (to (to r)))))
+			  (rcons (to r) (from r)))))
+(defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
+			   (> (car l) (or (cadr l) (car l))))))
 (defun rrev* (r : unrev) (if (rrevp r)
 			     (if unrev (rrev r) r)
 			   (if unrev r (rrev r))))
+
 (defun rlen (r) (symacrolet ((tr (to r)) (ftr (from (to r)))
 			     (fr (from r)) (ttr (to (to r))))
 			    (cond ((null r) r)
