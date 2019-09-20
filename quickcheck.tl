@@ -232,8 +232,8 @@
 		     ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 		     (inc ,i))
 		   (when ,excpt
-		     (error "Exception: ~a\nWhen function called with args: ~a"
-			    ,excpt ,newargs))
+		     (error "Exception: ~a\nWhen ~a called with args: ~a"
+			    ,excpt ',func ,newargs))
 		   ,(when pred
 		      ^(when (not ,pass)
 			 (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
