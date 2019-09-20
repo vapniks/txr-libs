@@ -10,15 +10,20 @@
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
-;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil.
+;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil. If a range
+;; has a step size (e.g. 1..10..2) then the step size will be negated when it is reversed.
+;; NOTE: ranges that have : as an endpoint will have their endpoints swapped around as with other ranges.
+;;       This means that, unlike ranges without : endpoints, the "reverse" of such a range corresponds to
+;;       a list which is not necessarily the reverse of the list corresponding to the original range.
 ;; rlen returns the length of its range argument, or 'inf if it is an infinite range.
 ;; All 4 functions return nil with an input of nil.
+(defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
+			   (> (car l) (or (cadr l) (car l))))))
+
 (defun rrev (r) (when r (if (rangep (to r))
 			    (rcons (from (to r))
 				   (rcons (from r) (- (to (to r)))))
 			  (rcons (to r) (from r)))))
-(defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
-			   (> (car l) (or (cadr l) (car l))))))
 (defun rrev* (r : unrev) (if (rrevp r)
 			     (if unrev (rrev r) r)
 			   (if unrev r (rrev r))))
