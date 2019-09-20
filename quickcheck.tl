@@ -1,5 +1,6 @@
 ;; Various macros and functions for testing & profiling code
 
+
 (load "randseq")
 (defpackage quickcheck (:fallback usr randseq))
 (in-package quickcheck)
@@ -201,43 +202,55 @@
 ;; If "printres" is non-nil then for each invocation of "func" the arguments and results
 ;; of that call are printed.
 ;; The args of func used in the macro call can contain struct objects with supertype qc-type (e.g. qc-int, qc-string, etc).
-;; The "next" member function of these objects will be used to generate new arguments to be tested.
-;; e.g. (rrev (new (qc-range -10..10 -10..10))) will call rrev with random ranges whose endpoints are between -10 & 10.
+;; The "next" member function of these objects will be used to generate new arguments to be tested, and this process
+;; is applied recursively (so you can use a qc-list struct that returns a list of qc-int structs for example).
+;; You can use dotten notation to apply the function being tested to a list of arguments,
+;; e.g. to test the rmin function with random lists of ranges:
+;;
+;; (let ((ranges (rmin (new (qc-list (list (new (qc-range))) 1..5)))))
+;;   (quickcheck 10 (rmin . ranges)) (numberp results) t)
+;;
 ;; Note: you can create your own qc struct types to use with quickcheck, but they must have qc-type as a supertype
 ;; and they must initialize the "iter" member to an iterator (see above).
 
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
 (defmacro quickcheck (n (func . args) : pred prinres)
-  (with-gensyms (newargs results excpt pass i err args2 nextfn)
-		^(let (,newargs ,results ,excpt ,err
-				(,nextfn (iff (op subtypep (typeof @1) 'qc-type)
-					      (umeth next)
-					      'identity))
-				(,pass t) (,i 0)
-				(,args2 (list ,*args)))
-		   (while (and (< ,i ,n) ,pass)
-		     (set ,newargs (mapcar ,nextfn ,args2)
-			  ,results (catch* (apply ',func ,newargs) (error (e . a) e))
-			  ,excpt (car (memq ,results
-					    (remq t (uniq (flatten (exception-subtype-map))))))
-			  ,pass (and (not ,excpt)
-				     ,(if pred
-					  ^(call ,(if (functionp pred)
-						      pred
-						    (list 'ret ^(let ((results @1) (args @2))
-								  ,pred)))
-						 ,results ,newargs)
-					  t)))
-		     ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
-		     (inc ,i))
-		   (when ,excpt
-		     (error "Exception: ~a\nWhen ~a called with args: ~a"
-			    ,excpt ',func ,newargs))
-		   ,(when pred
-		      ^(when (not ,pass)
-			 (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
-				',func ,newargs ,results))))))
+  (with-gensyms (newargs results excpt pass i err args2 getargs)
+		^(labels ((,getargs (args)
+				    (typecase args
+				      (qc-type (call (fun ,getargs) args.(next)))
+				      (list (mapcar (fun ,getargs) args))
+				      (vec (mapcar (fun ,getargs) args))
+				      (t args))))
+		   (let (,newargs ,results ,excpt ,err
+				  (,pass t) (,i 0)
+				  (,args2 ,(typecase args
+					     (sym args)
+					     (list ^(list ,*args)))))
+		     (while (and (< ,i ,n) ,pass)
+		       (set ,newargs (,getargs ,args2)
+			    ,results (catch* (apply ',func ,newargs)
+					     (error (e . a) e))
+			    ,excpt (car (memq ,results
+					      (remq t (uniq (flatten (exception-subtype-map))))))
+			    ,pass (and (not ,excpt)
+				       ,(if pred
+					    ^(call ,(if (functionp pred)
+							pred
+						      (list 'ret ^(let ((results @1) (args @2))
+								    ,pred)))
+						   ,results ,newargs)
+					    t)))
+		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
+		       (inc ,i))
+		     (when ,excpt
+		       (error "Exception: ~a\nWhen ~a called with args: ~a"
+			      ,excpt ',func ,newargs))
+		     ,(when pred
+			^(when (not ,pass)
+			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
+				  ',func ,newargs ,results)))))))
 
 
 
