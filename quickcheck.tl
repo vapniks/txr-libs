@@ -216,7 +216,7 @@
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
 (defmacro quickcheck (n (func . args) : pred prinres)
-  (with-gensyms (newargs results excpt pass i err args2 getargs)
+  (with-gensyms (newargs results excpt pass i err args2 getargs pred2)
 		^(labels ((,getargs (args)
 				    (typecase args
 				      (qc-type (call (fun ,getargs) args.(next)))
@@ -227,7 +227,12 @@
 				  (,pass t) (,i 0)
 				  (,args2 ,(typecase args
 					     (sym args)
-					     (list ^(list ,*args)))))
+					     (list ^(list ,*args))))
+				  (,pred2 ,(typecase pred
+					     (sym ^(fun ,pred))
+					     (fun pred)
+					     (list ^(ret (let ((results @1) (args @2))
+							   ,pred))))))
 		     (while (and (< ,i ,n) ,pass)
 		       (set ,newargs (,getargs ,args2)
 			    ,results (catch* (apply ',func ,newargs)
@@ -236,11 +241,7 @@
 					      (remq t (uniq (flatten (exception-subtype-map))))))
 			    ,pass (and (not ,excpt)
 				       ,(if pred
-					    ^(call ,(if (functionp pred)
-							pred
-						      (list 'ret ^(let ((results @1) (args @2))
-								    ,pred)))
-						   ,results ,newargs)
+					    ^(call ,pred2 ,results ,newargs)
 					    t)))
 		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 		       (inc ,i))
