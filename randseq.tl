@@ -50,8 +50,8 @@
 ;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the start/endpoint of ranges.
 ;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
 (defun rndrngs (: fr tr len dir step inf)
-  (let* ((fr (if (numberp fr) fr..fr (or fr 0..10)))
-	 (tr (if (numberp tr) tr..tr (or tr 0..10)))
+  (let* ((fr (if (numberp fr) fr..fr (or fr -10..10)))
+	 (tr (if (numberp tr) tr..tr (or tr -10..10)))
 	 (fr1 (min (from fr) (to fr)))
 	 (fr2 (max (from fr) (to fr)))
 	 (tr1 (min (from tr) (to tr)))
