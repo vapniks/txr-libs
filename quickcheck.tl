@@ -196,8 +196,10 @@
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
 ;; then an error message is emitted. This is repeated n times.
-;; "pred" can be either a function of 2 args, or a form in which @1/results will be replaced
-;; by the results of the "func" call, and @2/args will be replaced by its arguments,
+;; "pred" can be either a function object of 2 args (func results & args),
+;; an unquoted symbol for a function of 1 arg (func results),
+;; or a form in which @1/results will be replaced by the results of the "func" call,
+;; and @2/args will be replaced by its arguments,
 ;; e.g. the following 3 values for pred yield the same results; 'equal, (equal @1 @2) & (equal results args)
 ;; If "printres" is non-nil then for each invocation of "func" the arguments and results
 ;; of that call are printed.
@@ -216,7 +218,7 @@
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
 (defmacro quickcheck (n (func . args) : pred prinres)
-  (with-gensyms (newargs results excpt pass i err args2 getargs pred2)
+  (with-gensyms (newargs results excpt pass i err args2 getargs)
 		^(labels ((,getargs (args)
 				    (typecase args
 				      (qc-type (call (fun ,getargs) args.(next)))
@@ -227,12 +229,7 @@
 				  (,pass t) (,i 0)
 				  (,args2 ,(typecase args
 					     (sym args)
-					     (list ^(list ,*args))))
-				  (,pred2 ,(typecase pred
-					     (sym ^(fun ,pred))
-					     (fun pred)
-					     (list ^(ret (let ((results @1) (args @2))
-							   ,pred))))))
+					     (list ^(list ,*args)))))
 		     (while (and (< ,i ,n) ,pass)
 		       (set ,newargs (,getargs ,args2)
 			    ,results (catch* (apply ',func ,newargs)
@@ -240,9 +237,13 @@
 			    ,excpt (car (memq ,results
 					      (remq t (uniq (flatten (exception-subtype-map))))))
 			    ,pass (and (not ,excpt)
-				       ,(if pred
-					    ^(call ,pred2 ,results ,newargs)
-					    t)))
+				       ,(typecase pred
+					  (sym ^(call (fun ,pred) ,results))
+					  (fun ^(call ,pred ,results ,newargs))
+					  (list ^(call (ret (let ((results @1) (args @2))
+							      ,pred))
+						       ,results ,newargs))
+					  (t t))))
 		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 		       (inc ,i))
 		     (when ,excpt
