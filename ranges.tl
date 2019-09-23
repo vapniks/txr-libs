@@ -10,9 +10,16 @@
 
 ;; rfrom, rto & rstep extract the start, end and stepsize of their range argument,
 ;; treating : as 0 when at the start of a range.
+;; rset returns a new range which is an altered version of the input range, its
+;; optional arguments are the start, end and stepsize to overwrite the old range.
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
 (defun rstep (r) (when (rangep (to r)) (to (to r))))
+(defun rset (r : f t s)
+  (let ((f (or f (from r)))
+	(t (or t (rto r)))
+	(s (or s (rstep r))))
+    (if s (rcons f (rcons t s)) (rcons f t))))
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
