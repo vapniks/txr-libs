@@ -27,10 +27,10 @@
 			(signum (- (ifa (eq (to r) :) (+ fr 1) it)
 				   fr)))))
 (defun rset (r : fr tr s)
-  (let ((fr (or fr (from r)))
-	(tr (or tr (rto r)))
-	(s (or s (rstep r))))
-    (if s (rcons fr (rcons tr s)) (rcons fr tr))))
+  (set fr (or fr (from r))
+       tr (if (eq tr 'inf) : (or tr (rto r)))
+       s (or s (rstep r)))
+  (if s (rcons fr (rcons tr s)) (rcons fr tr)))
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
