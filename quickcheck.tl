@@ -234,6 +234,7 @@
 					(list (mapcar (fun ,getargs) args))
 					(vec (mapcar (fun ,getargs) args))
 					(t args))))
+		     (format t "Testing ~a\n" ',func)
 		     (let (,newargs ,results ,excpt ,err
 				    (,pass t) (,i 0)
 				    (,args2 ,(typecase args
