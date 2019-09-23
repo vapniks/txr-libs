@@ -15,7 +15,7 @@
 ;; NOTE: ranges that have : as an endpoint will have their endpoints swapped around as with other ranges.
 ;;       This means that, unlike ranges without : endpoints, the "reverse" of such a range corresponds to
 ;;       a list which is not necessarily the reverse of the list corresponding to the original range.
-;; rlen returns the length of its range argument, or 'inf if it is an infinite range.
+;; rlen returns the length of its range argument, or : if it is an infinite range.
 ;; All 4 functions return nil with an input of nil.
 (defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
 			   (> (car l) (or (cadr l) (car l))))))
@@ -31,13 +31,13 @@
 (defun rlen (r) (symacrolet ((tr (to r)) (ftr (from (to r)))
 			     (fr (from r)) (ttr (to (to r))))
 			    (cond ((null r) r)
-				  ((eq tr :) 'inf)
-				  ((eq fr :) (+ 1 (abs (if (rangep tr) ftr tr))))
+				  ((eq tr :) :)
+				  ((eq fr :) (rlen (rcons 0 tr)))
 				  ((rangep tr)
 				   (if (or (eq ftr :) (= (signum (- fr ftr)) (signum ttr)))
-				       'inf
+				       :
 				     (int-flo (ceil (/ (+ (abs (- ftr fr)) 1) (abs ttr))))))
-				  (t (+ (abs (length r)) 1)))))
+				  (t (+ (abs (len r)) 1)))))
 
 ;; rsplit splits its range argument at n into two disjoint ranges returned in a cons cell,
 ;; or if n is a list, into more than two ranges.
@@ -69,10 +69,9 @@
 	  (reverse (car (fn nil r n)))))))
 
 ;; return a list of all ends points of ranges in args, ignoring nil values
-;; TODO - should this return 'inf for infinite ranges?
 (defun rends args
   (let ((args2 (remq nil args)))
-    (remq nil (nconc (mapcar 'from args2)
+    (remq nil (nconc (mapcar (opip from (if (eq @1 :) 0 @1)) args2)
 		     (mapcar (chain 'to (iffi 'rangep 'from)) args2)))))
 
 ;; rmin & rmax return the smallest and largest endpoints of the ranges supplied in args,
