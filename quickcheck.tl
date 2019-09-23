@@ -196,13 +196,20 @@
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
 ;; then an error message is emitted. This is repeated n times.
-;; "pred" can be either a function object of 2 args (func results & args),
-;; an unquoted symbol for a function of 1 arg (func results),
-;; or a form in which @1/results will be replaced by the results of the "func" call,
-;; and @2/args will be replaced by its arguments,
-;; e.g. the following 3 values for pred yield the same results; 'equal, (equal @1 @2) & (equal results args)
-;; If "printres" is non-nil then for each invocation of "func" the arguments and results
-;; of that call are printed.
+
+;; "pred" can be one of the following:
+;; - an unquoted symbol for a function of 1 arg (func results) or 2 args (func results & args)
+;; - a regular expression (treated as a function of 1 arg; the results of calling func)
+;; - a form whose first element is one of the following symbols; op do lop ap ip ado ido opip oand ret dup chain chand
+;;                                                               andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda.
+;;   and which evaluates to a function of 1 arg (func results)
+;; - a form in which @1/results will be replaced by the results of the "func" call,
+;;   and @2/args will be replaced by its arguments.
+;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
+;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
+;;
+;; If "printres" is non-nil then for each invocation of "func" the arguments and results of that call are printed.
+;;
 ;; The args of func used in the macro call can contain struct objects with supertype qc-type (e.g. qc-int, qc-string, etc).
 ;; The "next" member function of these objects will be used to generate new arguments to be tested, and this process
 ;; is applied recursively (so you can use a qc-list struct that returns a list of qc-int structs for example).
@@ -217,42 +224,50 @@
 
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
-(defmacro quickcheck (n (func . args) : pred prinres)
-  (with-gensyms (newargs results excpt pass i err args2 getargs)
-		^(labels ((,getargs (args)
-				    (typecase args
-				      (qc-type (call (fun ,getargs) args.(next)))
-				      (list (mapcar (fun ,getargs) args))
-				      (vec (mapcar (fun ,getargs) args))
-				      (t args))))
-		   (let (,newargs ,results ,excpt ,err
-				  (,pass t) (,i 0)
-				  (,args2 ,(typecase args
-					     (sym args)
-					     (list ^(list ,*args)))))
-		     (while (and (< ,i ,n) ,pass)
-		       (set ,newargs (,getargs ,args2)
-			    ,results (catch* (apply ',func ,newargs)
-					     (error (e . a) e))
-			    ,excpt (car (memq ,results
-					      (remq t (uniq (flatten (exception-subtype-map))))))
-			    ,pass (and (not ,excpt)
-				       ,(typecase pred
-					  (sym ^(call (fun ,pred) ,results))
-					  (fun ^(call ,pred ,results ,newargs))
-					  (list ^(call (ret (let ((results @1) (args @2))
-							      ,pred))
-						       ,results ,newargs))
-					  (t t))))
-		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
-		       (inc ,i))
-		     (when ,excpt
-		       (error "Exception: ~a\nWhen ~a called with args: ~a"
-			      ,excpt ',func ,newargs))
-		     ,(when pred
-			^(when (not ,pass)
-			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
-				  ',func ,newargs ,results)))))))
+(defmacro quickcheck (n (func . args) : predfn prinres)
+  (let ((hfns '(op do lop ap ip ado ido opip oand ret dup chain chand
+		   andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda)))
+    (with-gensyms (newargs results excpt pass i err args2 getargs)
+		  ^(labels ((,getargs (args)
+				      (typecase args
+					(qc-type (call (fun ,getargs) args.(next)))
+					(list (mapcar (fun ,getargs) args))
+					(vec (mapcar (fun ,getargs) args))
+					(t args))))
+		     (let (,newargs ,results ,excpt ,err
+				    (,pass t) (,i 0)
+				    (,args2 ,(typecase args
+					       (sym args)
+					       (list ^(list ,*args)))))
+		       (while (and (< ,i ,n) ,pass)
+			 (set ,newargs (,getargs ,args2)
+			      ,results (catch* (apply ',func ,newargs)
+					       (error (e . a) e))
+			      ,excpt (car (memq ,results
+						(remq t (uniq (flatten (exception-subtype-map))))))
+			      ,pass (and (not ,excpt)
+					 ,(typecase predfn
+					    (regex ^(call ,predfn ,results))
+					    (sym (let* ((f (tostring (eval ^(fun ,predfn))))
+							(n (int-str (search-regst f #/[0-9]+/)))
+							(v (search-regst f #/variadic/)))
+						   (if (or (> n 1) v)
+						       ^(call (fun ,predfn) ,results ,newargs)
+						       ^(call (fun ,predfn) ,results))))
+					    (list (if (memq (car predfn) hfns)
+						      ^(call ,predfn ,results)
+						      ^(call (ret (let ((results @1) (args @2)) ,predfn))
+							     ,results ,newargs)))
+					    (t t))))
+			 ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
+			 (inc ,i))
+		       (when ,excpt
+			 (error "Exception: ~a\nWhen ~a called with args: ~a"
+				,excpt ',func ,newargs))
+		       ,(when predfn
+			  ^(when (not ,pass)
+			     (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
+				    ',func ,newargs ,results))))))))
 
 
 
