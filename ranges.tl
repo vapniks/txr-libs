@@ -86,16 +86,21 @@
 ;; rolap returns 'left / 'right if r1 is to the left/right of r2 without overlap,
 ;; 'olapl / 'olapr if r1 overlaps r2 to the left/right, 'within / 'contains if r1 is within / contains r2,
 ;; and 'equal if they are the same.
+;; TODO; handle : and stepsizes?
 (defun rolap (r1 r2)
-  (let ((f1 (from r1)) (t1 (to r1))
-	(f2 (from r2)) (t2 (to r2)))
-    (cond ((= f1 t1 f2 t2) 'equal)
-	  ((< t1 f2) 'left)
-	  ((> f1 t2) 'right)
-	  ((< f1 f2) (if (< t1 t2) 'olapl 'contains))
-	  ((> t1 t2) (if (> f1 f2) 'olapr 'contains))
-	  ((= r1 r2) 'equal)
-	  (t 'within))))
+  (flet ((rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
+	 (rto (r) (if (rangep (to r)) (from (to r)) (to r)))
+	 (rstep (r) (when (rangep (to r)) (to (to r)))))
+    (let ((f1 (rfrom r1)) (t1 (rto r1))
+	  (f2 (rfrom r2)) (t2 (rto r2))
+	  (s1 (rstep r1)) (s2 (rstep r2)))
+      (cond ((and (= f1 t1 f2 t2) (eq s1 s2)) 'equal)
+	    ((< t1 f2) 'left)
+	    ((> f1 t2) 'right)
+	    ((< f1 f2) (if (< t1 t2) 'olapl 'contains))
+	    ((> t1 t2) (if (> f1 f2) 'olapr 'contains))
+	    ((= r1 r2) 'equal)
+	    (t 'within)))))
 
 ;; rsort sorts a list of ranges, by smallest then largest endpoints.
 ;; Ranges are first transformed so that all are increasing (i.e. "from" value <= "to" value)
