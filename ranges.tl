@@ -15,11 +15,11 @@
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
 (defun rstep (r) (when (rangep (to r)) (to (to r))))
-(defun rset (r : f t s)
-  (let ((f (or f (from r)))
-	(t (or t (rto r)))
+(defun rset (r : fr tr s)
+  (let ((fr (or fr (from r)))
+	(tr (or tr (rto r)))
 	(s (or s (rstep r))))
-    (if s (rcons f (rcons t s)) (rcons f t))))
+    (if s (rcons fr (rcons tr s)) (rcons fr tr))))
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
