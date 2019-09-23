@@ -8,6 +8,12 @@
 
 ;; Some extra range functions (put them in a separate package)
 
+;; rfrom, rto & rstep extract the start, end and stepsize of their range argument,
+;; treating : as 0 when at the start of a range.
+(defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
+(defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
+(defun rstep (r) (when (rangep (to r)) (to (to r))))
+
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
 ;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil. If a range
@@ -88,19 +94,16 @@
 ;; and 'equal if they are the same.
 ;; TODO; handle : and stepsizes?
 (defun rolap (r1 r2)
-  (flet ((rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
-	 (rto (r) (if (rangep (to r)) (from (to r)) (to r)))
-	 (rstep (r) (when (rangep (to r)) (to (to r)))))
-    (let ((f1 (rfrom r1)) (t1 (rto r1))
-	  (f2 (rfrom r2)) (t2 (rto r2))
-	  (s1 (rstep r1)) (s2 (rstep r2)))
-      (cond ((and (= f1 t1 f2 t2) (eq s1 s2)) 'equal)
-	    ((< t1 f2) 'left)
-	    ((> f1 t2) 'right)
-	    ((< f1 f2) (if (< t1 t2) 'olapl 'contains))
-	    ((> t1 t2) (if (> f1 f2) 'olapr 'contains))
-	    ((= r1 r2) 'equal)
-	    (t 'within)))))
+  (let ((f1 (rfrom r1)) (t1 (rto r1))
+	(f2 (rfrom r2)) (t2 (rto r2))
+	(s1 (rstep r1)) (s2 (rstep r2)))
+    (cond ((and (= f1 t1 f2 t2) (eq s1 s2)) 'equal)
+	  ((< t1 f2) 'left)
+	  ((> f1 t2) 'right)
+	  ((< f1 f2) (if (< t1 t2) 'olapl 'contains))
+	  ((> t1 t2) (if (> f1 f2) 'olapr 'contains))
+	  ((= r1 r2) 'equal)
+	  (t 'within))))
 
 ;; rsort sorts a list of ranges, by smallest then largest endpoints.
 ;; Ranges are first transformed so that all are increasing (i.e. "from" value <= "to" value)
