@@ -9,7 +9,8 @@
 ;; Some extra range functions (put them in a separate package)
 
 ;; rfrom, rto & rstep extract the start, end and stepsize of their range argument (if there is one),
-;; treating : as 0 when at the start of a range.
+;; treating : as 0 when at the start of a range. rstep* is like rstep except that a stepsize is
+;; always returned, so e.g. (rstep 1..5) returns 1, (rstep 5..1) returns -1, & (rstep 5..5) returns 0.
 ;; rset returns a new range which is an altered version of the input range, its
 ;; optional arguments are the start, end and stepsize to overwrite the old range.
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
@@ -21,6 +22,7 @@
 			   (if (less (rfrom r) (from tr))
 			       1 -1)
 			 s)))))
+(defun rstep* (r) (or (rstep r) (signum (- (to r) (rfrom r)))))
 (defun rset (r : fr tr s)
   (let ((fr (or fr (from r)))
 	(tr (or tr (rto r)))
