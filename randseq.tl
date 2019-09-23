@@ -42,7 +42,7 @@
 (defun rndbools () (gen (ret t) (> (rand 2) 0)))
 
 ;; Returns lazy list of ranges. Arguments:
-;; fr/tr = range of allowed values for start/end of ranges
+;; fr/tr = range of allowed values for start/end of ranges (can be int/char ranges with/without a stepsize)
 ;; len   = range of allowed lengths of ranges (can also be a single number)
 ;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned
 ;; step  = optional step size for ranges; can be an integer for a fixed step size,
@@ -52,7 +52,7 @@
 (defun rndrngs (: fr tr len dir step inf)
   (let* ((fn1 (iff (orf 'numberp 'chrp) (ret @1..@1)
 		   (iff 'rangep 'identity (retf -10..10))))
-	 (fn2 (op @1 (from @2) (to @2)))
+	 (fn2 (op @1 (from @2) (if (rangep (to @2)) (from (to @2)) (to @2))))
 	 (fr [fn1 fr]) (tr [fn1 tr])
 	 (fr1 [fn2 min fr]) (fr2 [fn2 max fr])
 	 (tr1 [fn2 min tr]) (tr2 [fn2 max tr])
