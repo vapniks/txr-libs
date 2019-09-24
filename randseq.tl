@@ -42,11 +42,12 @@
 (defun rndbools () (gen (ret t) (> (rand 2) 0)))
 
 ;; Returns lazy list of ranges. Arguments:
-;; fr/tr = range of allowed values for start/end of ranges (can be int/char ranges with/without a stepsize)
-;; len   = range of allowed lengths of ranges (can also be a single number)
-;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned
+;; fr/tr = range of allowed values for start/end of ranges (can be int/char ranges with/without a stepsize).
+;; len   = range of allowed lengths of ranges (can also be a single number).
+;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned.
 ;; step  = optional step size for ranges; can be an integer for a fixed step size,
-;;         or a range for step sizes chosen uniformely at random within the range,
+;;         or a range for step sizes chosen uniformely at random within the range
+;;         (if necessary step will be negated to maintain consistency with dir & inf).
 ;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the start/endpoint of ranges.
 ;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
 (defun rndrngs (: fr tr len dir step inf)
