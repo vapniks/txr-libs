@@ -46,7 +46,7 @@
 ;; len   = range of allowed lengths of ranges (can also be a single number).
 ;; dir   = if +ve/-ve number then only increasing/decreasing ranges returned.
 ;; step  = optional step size for ranges; can be an integer for a fixed step size,
-;;         or a range for step sizes chosen uniformely at random within the range
+;;         or a range or list of step sizes from which a stepsize will be chosen uniformely at random 
 ;;         (if necessary step will be negated to maintain consistency with dir & inf).
 ;; inf   = if "inf" is non-nil and "len" is nil, then ":" will be allowed as the start/endpoint of ranges.
 ;; (Note: ":" will be selected with the same probability as the other numbers in "tr").
