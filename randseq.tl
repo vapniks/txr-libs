@@ -87,7 +87,10 @@
 					(let ((d (> (to @1) (from @1)))
 					      (s (max (abs @2) 1)))
 					  (if d s (- s))))))))
-		 rnglst (rndints step))
+		 rnglst (typecase step
+			  (range (rndints step))
+			  (list (rndelems step))
+			  (t (error "Invalid step arg ~a" step))))
       rnglst)))
 
 ;; Create a lazy list of random elements taken uniformly from list "incl",
