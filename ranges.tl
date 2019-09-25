@@ -11,8 +11,9 @@
 ;; rfrom, rto & rstep extract the start, end and stepsize of their range argument (if there is one),
 ;; treating : as 0 when at the start of a range. rstep* is like rstep except that a stepsize is
 ;; always returned, so e.g. (rstep 1..5) returns 1, (rstep 5..1) returns -1, & (rstep 5..5) returns 0.
-;; rset returns a new range which is an altered version of the input range, its
-;; optional arguments are the start, end and stepsize to overwrite the old range.
+;; rset returns a new range which is an altered version of the input range, its optional arguments are
+;; the start, end and stepsize to overwrite the old range. If the stepsize arg is nil then the returned
+;; range will have no stepsize (even if the original did).
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
 (defun rstep (r) (let ((tr (to r)))
@@ -26,11 +27,12 @@
 		      (let ((fr (rfrom r)))
 			(signum (- (ifa (eq (to r) :) (+ fr 1) it)
 				   fr)))))
-(defun rset (r : fr tr s)
+(defun rset (r : fr tr (s nil sp))
   (set fr (or fr (from r))
-       tr (if (eq tr 'inf) : (or tr (rto r)))
-       s (or s (rstep r)))
-  (if s (rcons fr (rcons tr s)) (rcons fr tr)))
+       tr (if (eq tr 'inf) : (or tr (rto r))))
+  (if sp (rcons fr (if s (rcons tr s) tr))
+    (rcons fr (let ((st (rstep r)))
+		(if st (rcons tr st) tr)))))
 
 ;; rrev reverses its range argument, rrevp tests if a range is reversed,
 ;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
