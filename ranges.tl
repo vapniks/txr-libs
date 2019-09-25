@@ -109,23 +109,29 @@
 
 ;; rolap returns 'left / 'right if r1 is to the left/right of r2 without overlap,
 ;; 'olapl / 'olapr if r1 overlaps r2 to the left/right, 'within / 'contains if r1 is within / contains r2,
-;; and 'equal if they are the same.
-;; TODO; handle : and stepsizes?
+;; and 'equal if they are the same. Note: stepsizes are ignored, only the endpoints are taken into consideration.
+;;
+;; TODO: write another function rolap* which takes stepsizes into account? (tricky when stepsizes differ).
 (defun rolap (r1 r2)
   (let ((f1 (rfrom r1)) (t1 (rto r1))
-	(f2 (rfrom r2)) (t2 (rto r2))
-	(s1 (rstep r1)) (s2 (rstep r2)))
-    (cond ((and (= f1 t1 f2 t2) (eq s1 s2)) 'equal)
-	  ((< t1 f2) 'left)
-	  ((> f1 t2) 'right)
-	  ((< f1 f2) (if (< t1 t2) 'olapl 'contains))
-	  ((> t1 t2) (if (> f1 f2) 'olapr 'contains))
-	  ((= r1 r2) 'equal)
+	(f2 (rfrom r2)) (t2 (rto r2)))
+    (cond ((less t1 f2) 'left)
+	  ((greater f1 t2) 'right)
+	  ((less f1 f2) (if (less t1 t2) 'olapl 'contains))
+	  ((greater t1 t2) (if (greater f1 f2) 'olapr 'contains))
+	  ((and (eq f1 f2) (eq t1 t2)) 'equal)
 	  (t 'within))))
 
-;; rsort sorts a list of ranges, by smallest then largest endpoints.
+;; rsort sorts a list of ranges, by smallest then largest endpoints, then stepsize in reverse order
+;; (the rationale is that ranges with smaller stepsizes are likely to get closer to the endpoint).
 ;; Ranges are first transformed so that all are increasing (i.e. "from" value <= "to" value)
-(defun rsort args (sort (mapcar (op 'rrev* @1 t) args)))
+(defun rsort args (macrolet ((comp (fn pos) ^(mapf ',fn ',pos ',pos)))
+		    (sort (mapcar (op 'rrev* @1 t) args)
+			  (iff (comp eq rfrom)
+			       (iff (comp eq rto)
+				    (comp greater rstep)
+				    (comp less rto))
+			       (comp less rfrom)))))
 
 ;; runi returns a list of ranges which cover the union of the ranges in args, and no more.
 ;; nil args and ranges with the same to & from values are treated as empty, and do not alter results.
