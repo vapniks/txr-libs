@@ -126,7 +126,7 @@
 ;; (the rationale is that ranges with smaller stepsizes are likely to get closer to the endpoint).
 ;; Ranges are first transformed so that all are increasing (i.e. "from" value <= "to" value)
 (defun rsort args (macrolet ((comp (fn pos) ^(mapf ',fn ',pos ',pos)))
-		    (sort (mapcar (op 'rrev* @1 t) args)
+		    (sort (mapcar (lop 'rrev* t) args)
 			  (iff (ret (null @1)) 'nilf
 			       (iff (ret (null @2)) 'tf
 				    (iff (comp eq rfrom)
