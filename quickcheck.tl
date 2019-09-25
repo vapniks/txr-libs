@@ -31,7 +31,7 @@
   (let ((len (length args))
 	(lst (sort args)))
     (if (oddp len)
-	(nth (int-flo (floor (/ len 2))) lst)
+	(nth (floor len 2) lst)
       (/ (+ (nth (int-flo (/ len 2)) lst)
 	    (nth (int-flo (- (/ len 2) 1)) lst))
 	 2))))
