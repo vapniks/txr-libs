@@ -127,11 +127,13 @@
 ;; Ranges are first transformed so that all are increasing (i.e. "from" value <= "to" value)
 (defun rsort args (macrolet ((comp (fn pos) ^(mapf ',fn ',pos ',pos)))
 		    (sort (mapcar (op 'rrev* @1 t) args)
-			  (iff (comp eq rfrom)
-			       (iff (comp eq rto)
-				    (comp greater rstep)
-				    (comp less rto))
-			       (comp less rfrom)))))
+			  (iff (ret (null @1)) 'nilf
+			       (iff (ret (null @2)) 'tf
+				    (iff (comp eq rfrom)
+					 (iff (comp eq rto)
+					      (comp greater rstep)
+					      (comp less rto))
+					 (comp less rfrom)))))))
 
 ;; runi returns a list of ranges which cover the union of the ranges in args, and no more.
 ;; nil args and ranges with the same to & from values are treated as empty, and do not alter results.
