@@ -166,7 +166,8 @@
 		   ((<= (to @2) (to @1)) @2)
 		   (t (rcons (from @2) (to @1)))))
 	(mapcar 'car ;; sort ranges and remove redundant ones
-		(partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil) (lop rrev* t))
+		(partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil)
+							 (lop rrev* t))
 						  (remq nil args)))))
 	0)))
 
