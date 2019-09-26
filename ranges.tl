@@ -29,7 +29,9 @@
 				   fr)))))
 (defun rset (r : fr tr (s nil sp))
   (set fr (or fr (from r))
-       tr (if (eq tr 'inf) : (or tr (rto r))))
+       tr (if tr
+	      (if (symbolp tr) : tr)
+	    (rto r)))
   (if sp (rcons fr (if s (rcons tr s) tr))
     (rcons fr (let ((st (rstep r)))
 		(if st (rcons tr st) tr)))))
