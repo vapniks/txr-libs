@@ -12,8 +12,9 @@
 ;; treating : as 0 when at the start of a range. rstep* is like rstep except that a stepsize is
 ;; always returned, so e.g. (rstep 1..5) returns 1, (rstep 5..1) returns -1, & (rstep 5..5) returns 0.
 ;; rset returns a new range which is an altered version of the input range, its optional arguments are
-;; the start, end and stepsize to overwrite the old range. If the stepsize arg is nil then the returned
-;; range will have no stepsize (even if the original did).
+;; the start, end and stepsize to overwrite the old range. To specify : for the end (i.e. infinity),
+;; use any non-nil symbol. If the stepsize arg is nil then the returned range will have no stepsize
+;; (even if the original did).
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
 (defun rstep (r) (let ((tr (to r)))
