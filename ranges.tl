@@ -142,6 +142,7 @@
 
 ;; runi returns a list of ranges which cover the union of the ranges in args, and no more. Stepsizes are ignored.
 ;; nil args and ranges with the same to & from values are treated as empty, and do not alter results.
+;; TODO: create runi* function that takes account of stepsizes?
 (defun runi args
   (sort (reduce-left
 	 (do let ((r1 (car @1)) (r2 @2))
