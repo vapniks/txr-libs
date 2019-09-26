@@ -140,18 +140,19 @@
 					      (comp less rto))
 					 (comp less rfrom)))))))
 
-;; runi returns a list of ranges which cover the union of the ranges in args, and no more.
+;; runi returns a list of ranges which cover the union of the ranges in args, and no more. Stepsizes are ignored.
 ;; nil args and ranges with the same to & from values are treated as empty, and do not alter results.
 (defun runi args
   (sort (reduce-left
 	 (do let ((r1 (car @1)) (r2 @2))
 	   (cond ((null r1) (list r2))
-		 ((<= (to r2) (to r1)) @1)
-		 ((<= (from r2) (+ (to r1) 1))
-		  (cons (rcons (from r1) (to r2)) (cdr @1)))
+		 ((lequal (rto r2) (rto r1)) @1)
+		 ((lequal (rfrom r2) (ifa (eq (rto r1) :) it (succ it)))
+		  (cons (rcons (rfrom r1) (rto r2)) (cdr @1)))
 		 (t (cons r2 @1))))
 	 (mapcar (opip last car) ;; for each start point keep longest range
-		 (partition-by 'from (apply 'rsort (remq nil args))))
+		 (partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil) (lop rrev* t))
+						   (remq nil args)))))
 	 nil)))
 
 ;; risec returns a single range representing the intersection of its argument ranges,
