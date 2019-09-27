@@ -15,6 +15,7 @@
 ;; the start, end and stepsize to overwrite the old range. To specify : for the end (i.e. infinity),
 ;; use any non-nil symbol. If the stepsize arg is nil then the returned range will have no stepsize
 ;; (even if the original did).
+;; TODO: define syntactic places for start, end & stepsize of ranges
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
 (defun rstep (r) (let ((tr (to r)))
@@ -162,8 +163,8 @@
   (and (not (memq nil args))
        (reduce-left
 	(ret (cond ((zerop @1) @2)
-		   ((> (from @2) (to @1)) (return-from risec))
-		   ((<= (to @2) (to @1)) @2)
+		   ((greater (from @2) (to @1)) (return-from risec))
+		   ((lequal (to @2) (to @1)) @2)
 		   (t (rcons (from @2) (to @1)))))
 	(mapcar 'car ;; sort ranges and remove redundant ones
 		(partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil)
