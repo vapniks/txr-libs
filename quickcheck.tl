@@ -198,15 +198,19 @@
 ;; then an error message is emitted. This is repeated n times.
 
 ;; "pred" can be one of the following:
-;; - an unquoted symbol for a function of 1 arg (func results) or 2 args (func results & args)
+;; - an unquoted symbol for a function of 1 arg (return value of func) or 2 args (return value & args of func)
 ;; - a regular expression (treated as a function of 1 arg; the results of calling func)
-;; - a form whose first element is one of the following symbols; op do lop ap ip ado ido opip oand ret dup chain chand
-;;                                                               andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda.
-;;   and which evaluates to a function of 1 arg (func results)
-;; - a form in which @1/results will be replaced by the results of the "func" call,
-;;   and @2/args will be replaced by its arguments.
+;; - a form whose first element is one of these symbols; op do lop ap ip ado ido opip oand ret dup chain chand
+;;   andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda fun. In this case quickcheck will try to guess if this
+;;   represents a function of 1 or 2 args by looking at the 2nd or 3rd element of the form. If it thinks it is a
+;;   function of 1 arg it will pass it the return value of func, otherwise it will pass both the return value and
+;;   args of func.
+;; - a form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
+;;   its arguments. Alternatively, an symbol macro that is equivalent to such a form.
 ;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
 ;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
+;; and these; (andf 'listp (opip len (< 3))) (and (listp results) (< 3 (len results))) (and (listp @1) (< 3 (len @1)))
+;; and these; (mapf 'eq 'len 'len) (eq (len results) (len args)) (eq (len @1) (len @2))
 ;;
 ;; If "printres" is non-nil then for each invocation of "func" the arguments and results of that call are printed.
 ;;
