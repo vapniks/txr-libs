@@ -220,24 +220,61 @@
 ;; You can use dotten notation to apply the function being tested to a list of arguments,
 ;; e.g. to test the rmin function with random lists of ranges:
 ;;
-;; (let ((ranges (rmin (new (qc-list (list (new (qc-range))) 1..5)))))
-;;   (quickcheck 10 (rmin . ranges)) (numberp results) t)
+;; (let ((ranges (new (qc-list (list (new (qc-range))) 1..5)))) (quickcheck 10 (rmin . ranges) numberp))
 ;;
 ;; Note: you can create your own qc struct types to use with quickcheck, but they must have qc-type as a supertype
 ;; and they must initialize the "iter" member to an iterator (see above).
 
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
-(defmacro quickcheck (n (func . args) : predfn prinres)
-  (let ((hfns '(op do lop ap ip ado ido opip oand ret dup chain chand
-		   andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda)))
-    (with-gensyms (newargs results excpt pass i err args2 getargs)
+(defmacro quickcheck (n (func . args) : predfn prinres :env e)
+  (let ((hfns1 '(f^$ f^ f$ dup apf ipf ap ip ado ido))
+	(hfns2 '(mapf lop op do fun ret lambda))
+	(hfns?a '(oand andf orf notf iff iffi chain chand))
+	(hfns?b '(opip))
+	(hfns?c '(callf)))
+    (with-gensyms (newargs results excpt pass i err args2 getargs predfn2)
 		  ^(labels ((,getargs (args)
 				      (typecase args
 					(qc-type (call (fun ,getargs) args.(next)))
 					(list (mapcar (fun ,getargs) args))
 					(vec (mapcar (fun ,getargs) args))
-					(t args))))
+					(t args)))
+			    (,predfn2 (results args)
+				      ,(flet ((oneargp (fn)
+						       (let* ((f (tostring fn))
+							      (n (int-str (search-regst f #/[0-9]+/)))
+							      (v (search-regst f #/variadic/)))
+							 (not (or (> n 1) v)))))
+					 (typecase predfn
+					   (regex ^(search-regst results ,predfn))
+					   (sym (let ((llb (lexical-lisp1-binding e predfn)))
+						  (if (memq llb '(:symacro :var))
+						      predfn
+						    (if (oneargp (eval ^(fun ,predfn) e))
+							^(call (fun ,predfn) results)
+							^(call (fun ,predfn) results args)))))
+					   (list (cond ((memq (car predfn) hfns1)
+							^(call ,predfn results))
+						       ((memq (car predfn) hfns2)
+							^(call ,predfn results args))
+						       ((memq (car predfn) hfns?a)
+							(if (and (symbolp (cadr predfn))
+								 (oneargp (eval ^(symbol-function ,(cadr predfn)))))
+							    ^(call ,predfn results)
+							    ^(call ,predfn results args)))
+						       ((memq (car predfn) hfns?b)
+							(if (and (symbolp (cadr predfn))
+								 (oneargp (eval ^(fun ,(cadr predfn)))))
+							    ^(call ,predfn results)
+							    ^(call ,predfn results args)))
+						       ((memq (car predfn) hfns?c)
+							(if (and (symbolp (caddr predfn))
+								 (oneargp (eval ^(symbol-function ,(caddr predfn)))))
+							    ^(call ,predfn results)
+							    ^(call ,predfn results args)))
+						       (t predfn)))
+					   (t t)))))
 		     (format t "Testing ~a\n" ',func)
 		     (let (,newargs ,results ,excpt ,err
 				    (,pass t) (,i 0)
@@ -250,20 +287,7 @@
 					       (error (e . a) e))
 			      ,excpt (car (memq ,results
 						(remq t (uniq (flatten (exception-subtype-map))))))
-			      ,pass (and (not ,excpt)
-					 ,(typecase predfn
-					    (regex ^(call ,predfn ,results))
-					    (sym (let* ((f (tostring (eval ^(fun ,predfn))))
-							(n (int-str (search-regst f #/[0-9]+/)))
-							(v (search-regst f #/variadic/)))
-						   (if (or (> n 1) v)
-						       ^(call (fun ,predfn) ,results ,newargs)
-						       ^(call (fun ,predfn) ,results))))
-					    (list (if (memq (car predfn) hfns)
-						      ^(call ,predfn ,results)
-						      ^(call (ret (let ((results @1) (args @2)) ,predfn))
-							     ,results ,newargs)))
-					    (t t))))
+			      ,pass (and (not ,excpt) (,predfn2 ,results ,newargs)))
 			 ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 			 (inc ,i))
 		       (when ,excpt
