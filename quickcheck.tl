@@ -193,6 +193,8 @@
 	   seq (n 1..10) uniq
 	   (:postinit (self) (set self.iter (rndvecs* self.seq self.n self.uniq))))
 
+(defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
+
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
 ;; then an error message is emitted. This is repeated n times.
