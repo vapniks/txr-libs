@@ -195,6 +195,43 @@
 
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
+;; func-get-info returns a list of the following information about its function argument:
+;; the function type (interpreted or intrinsic), number of required args, number of optional args,
+;; and whether or not the function is variadic (allows any number of args).
+;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
+;; and the 4th will be "t".
+(defun func-get-info (func)
+  (if (regexp func)
+      (list 'regex 1 0 nil)
+    (let* ((f (typecase func
+		(string func)
+		(fun (tostring func))
+		(sym (tostring (symbol-function func)))
+		(t (error "Invalid arg: ~a" func))))
+	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
+		       ((search-regex f #/intrinsic/) 'intrinsic)
+		       (t 'unknown)))
+	   (variadic (not (null (search-regex f #/variadic/))))
+	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
+	   (l2 (when l (sub-str l 7)))
+	   (p (search-regst f #/[0-9]+ +param/))
+	   (o (search-regst f #/[0-9]+ +optional/))
+	   reqparams optparams variadic)
+      (if l2
+	  (if (search-regst l2 #/nil/)
+	      (set reqparams 0 optparams 0 variadic nil)
+	    (if (search-regst l2 #/\(/)
+		(let* ((parts1 (partition* (split-str l2 " ") (op posqual ".")))
+		       (parts2 (partition* (car parts1) (op posqual ":"))))
+		  (set reqparams (len (car parts2))
+		       optparams (len (cadr parts2))
+		       variadic (not (null (cadr parts1)))))
+	      (set reqparams 0 optparams 0 variadic t)))
+	(set reqparams (if p (int-str (sub-str p nil -6)) 0)
+	     optparams (if o (int-str (sub-str o nil -9)) 0)
+	     variadic (not (null (search-regex f #/variadic/)))))
+      (list type reqparams optparams variadic))))
+
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) the input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
 ;; symacro (a symbol macro), sym (a symbol - could be a macro, function or dynamically bound variable),
@@ -266,7 +303,7 @@
 ;;   args of func.
 ;; - A form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
 ;;   its arguments. 
-;; - A symbol macro which expands to a form of the above type (ignore the warnings about "unbound function").
+;; - A symbol macro which expands to a form of the above type.
 ;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
 ;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
 ;; and these; (andf 'listp (opip len (< 3))) (and (listp results) (< 3 (len results))) (and (listp @1) (< 3 (len @1)))
@@ -342,42 +379,5 @@
 			^(when (not ,pass)
 			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
 				  ',func ,newargs ,results)))))))
-
-;; func-get-info returns a list of the following information about its function argument:
-;; the function type (interpreted or intrinsic), number of required args, number of optional args,
-;; and whether or not the function is variadic (allows any number of args).
-;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
-;; and the 4th will be "t".
-(defun func-get-info (func)
-  (if (regexp func)
-      (list 'regex 1 0 nil)
-    (let* ((f (typecase func
-		(string func)
-		(fun (tostring func))
-		(sym (tostring (symbol-function func)))
-		(t (error "Invalid arg: ~a" func))))
-	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
-		       ((search-regex f #/intrinsic/) 'intrinsic)
-		       (t 'unknown)))
-	   (variadic (not (null (search-regex f #/variadic/))))
-	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
-	   (l2 (when l (sub-str l 7)))
-	   (p (search-regst f #/[0-9]+ +param/))
-	   (o (search-regst f #/[0-9]+ +optional/))
-	   reqparams optparams variadic)
-      (if l2
-	  (if (search-regst l2 #/nil/)
-	      (set reqparams 0 optparams 0 variadic nil)
-	    (if (search-regst l2 #/\(/)
-		(let* ((parts1 (partition* (split-str l2 " ") (op posqual ".")))
-		       (parts2 (partition* (car parts1) (op posqual ":"))))
-		  (set reqparams (len (car parts2))
-		       optparams (len (cadr parts2))
-		       variadic (not (null (cadr parts1)))))
-	      (set reqparams 0 optparams 0 variadic t)))
-	(set reqparams (if p (int-str (sub-str p nil -6)) 0)
-	     optparams (if o (int-str (sub-str o nil -9)) 0)
-	     variadic (not (null (search-regex f #/variadic/)))))
-      (list type reqparams optparams variadic))))
 
 
