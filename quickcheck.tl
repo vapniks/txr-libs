@@ -195,20 +195,79 @@
 
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
+;; numargs takes a lisp form or symbol and returns a list containing the following information:
+;; 1) the input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
+;; symacro (a symbol macro), sym (a symbol - could be a macro, function or dynamically bound variable),
+;; macro (a normal macro) or "other"
+;; 2) the number of required args when treated as a function,
+;; 3) the number of optional args,
+;; 4) whether or not the function is variadic (i.e. whether or not it accepts any number of args).
+;; Note: this function makes heuristic guesses by examining the first arg of any list input.
+;; It should be correct for most cases. symbol macros are treated as having 0 args, and the number of
+;; args for symbol macros cannot be determined so nils are returned in this case.
+(defmacro numargs (frm :env e)
+  (let ((hfns1 '(f^$ f^ f$ dup apf ipf ap ip ado ido))
+	(hfns2 '(ret mapf))
+	(hfns?a '(lop op do))
+	(hfns?b '(andf orf notf iff iffi chain chand opip oand fun))
+	(hfns?c '(callf))
+	(hfns?d '(lambda quote)))
+    (typecase frm
+      (regex ^(list 'regex 1 0 nil))
+      (sym (let ((llc (lexical-lisp1-binding e frm)))
+	     (caseq llc
+		    (:symacro '(list 'symacro 0 0 nil))
+		    (:var '(list 'var 0 0 nil))
+		    (:fun ^(let ((i (func-get-info (fun ,frm))))
+			     (list 'lfun (second i) (third i) (fourth i))))
+		    (t (if (macro-form-p ^(,frm) e)
+			   (catch (macroexpand-1 ^(,frm) e)
+			     (error (err)
+				    (let* ((str (search-regst err #/params \([^()]*\)/))
+					   (args (when str (split-str (sub-str str 7) " ")))
+					   (parts1 (when args (partition* args (op posqual "."))))
+					   (parts2 (when args (partition* (car parts1) (op posqual ":")))))
+				      ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
+					     ,(not (null (cadr parts1)))))))
+			 ^(let ((i (func-get-info (quotesym ,frm))))
+			    (list 'sym (second i) (third i) (fourth i))))))))
+      (fun ^(let ((i (func-get-info ,frm)))
+	      (list 'fun (second i) (third i) (fourth i))))
+      (list (symacrolet
+	     ((fst (car frm)) (snd (cadr frm)) (thd (caddr frm))
+	      (i2 '(second i)) (i3 '(third i)) (i4 '(fourth i))
+	      (nargs2 ^(+ ,i2 ,i3)))
+	     (cond ((memq fst hfns1) '(list 'list 1 0 nil))
+		   ((memq fst hfns2) '(list 'list 2 0 nil))
+		   ((memq fst hfns?a)
+		    ^(let ((i (func-get-info (fun ,snd))))
+		       (list 'list (max 0 (- ,i2 ,(- (len frm) 2)))
+			     (clamp 0 ,i3 (- ,nargs2 ,(- (len frm) 2)))
+			     ,i4)))
+		   ((memq fst hfns?b) ^(cons 'list (cdr (numargs ,snd))))
+		   ((memq fst hfns?c) ^(cons 'list (cdr (numargs ,thd))))
+		   ((memq fst hfns?d)
+		    ^(let ((i (func-get-info ,frm))) (list 'list ,i2 ,i3 ,i4)))
+		   (t '(list 'list 0 0 nil)))))
+      (t '(list 'other 0 0 nil)))))
+
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
 ;; then an error message is emitted. This is repeated n times.
 
 ;; "pred" can be one of the following:
-;; - an unquoted symbol for a function of 1 arg (return value of func) or 2 args (return value & args of func)
-;; - a regular expression (treated as a function of 1 arg; the results of calling func)
-;; - a form whose first element is one of these symbols; op do lop ap ip ado ido opip oand ret dup chain chand
+;; - An unquoted symbol for a dynamic or lexically scoped function of 1 arg (return value of func),
+;;   or 2 args (return value & args of func).
+;; - A regular expression (treated as a function of 1 arg; the results of calling func).
+;; - A form whose first element is one of these symbols; op do lop ap ip ado ido opip oand ret dup chain chand
 ;;   andf orf notf iff iffi apf ipf callf f^$ f^ f$ lambda fun. In this case quickcheck will try to guess if this
 ;;   represents a function of 1 or 2 args by looking at the 2nd or 3rd element of the form. If it thinks it is a
 ;;   function of 1 arg it will pass it the return value of func, otherwise it will pass both the return value and
 ;;   args of func.
-;; - a form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
-;;   its arguments. Alternatively, an symbol macro that is equivalent to such a form.
+;; - A form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
+;;   its arguments. 
+;; - A symbol macro which expands to a form of the above type.
+;; - A macro which takes 2 arguments (return value & args of func).
 ;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
 ;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
 ;; and these; (andf 'listp (opip len (< 3))) (and (listp results) (< 3 (len results))) (and (listp @1) (< 3 (len @1)))
@@ -230,102 +289,63 @@
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
 (defmacro quickcheck (n (func . args) : predfn prinres :env e)
-  (let ((hfns1 '(f^$ f^ f$ dup apf ipf ap ip ado ido))
-	(hfns2 '(ret mapf))
-	(hfns?a '(lop op do))
-	(hfns?b '(andf orf notf iff iffi chain chand))
-	(hfns?c '(opip oand fun))
-	(hfns?d '(callf))
-	(hfns?e '(lambda quote))
-	islfun issym)
-    (with-gensyms (newargs results excpt pass i args2 getargs nargs)
-		  ^(labels ((,getargs (args)
-				      (typecase args
-					(qc-type (call (fun ,getargs) args.(next)))
-					(list (mapcar (fun ,getargs) args))
-					(vec (mapcar (fun ,getargs) args))
-					(t args))))
-		     (format t "Testing ~a\n" ',func)
-		     (let (,newargs ,results ,excpt
-				    (,pass t) (,i 0)
-				    (,args2 ,(typecase args
-					       (sym args)
-					       (list ^(list ,*args))))
-				    (,nargs ,(typecase predfn
-					       (regex 1)
-					       (sym (caseq (lexical-lisp1-binding e predfn)
-							   ((:symacro :var) 0)
-							   (:fun (set islfun t)
-								 ^(let ((i (func-get-info (fun ,predfn))))
-								    (if (or (fourth i)
-									    (> (+ (second i) (third i)) 1))
-									2
-								      1)))
-							   (t (set issym t)
-							      ^(let ((i (func-get-info (quotesym ,predfn))))
-								 (if (or (fourth i)
-									 (> (+ (second i) (third i)) 1))
-								     2
-								   (if (> (+ (second i) (third i)) 0)
-								       1
-								     0))))))
-					       (fun ^(let ((i (func-get-info ,predfn)))
-						       (if (or (fourth i)
-							       (> (+ (second i) (third i)) 1))
-							   2
-							 1)))
-					       (list (symacrolet
-						      ((fst (car predfn))
-						       (snd (cadr predfn))
-						       (thd (caddr predfn))
-						       (nargs2 ^(+ (second i) (third i)))
-						       (getn ^(if (or (fourth i) (> ,nargs2 1)) 2 1)))
-						      (cond ((memq fst hfns1) 1)
-							    ((memq fst hfns2) 2)
-							    ((memq fst hfns?a)
-							     ^(let ((i (func-get-info
-									(quotesym ,snd))))
-								(if (or (fourth i)
-									(> (- ,nargs2
-									      ,(- (len predfn) 2))
-									   1))
-								    2 1)))
-							    ((memq fst hfns?b)
-							     ^(let ((i (func-get-info ,snd))) ,getn))
-							    ((memq fst hfns?c)
-							     ^(let ((i (func-get-info (fun ,snd)))) ,getn))
-							    ((memq fst hfns?d)
-							     ^(let ((i (func-get-info ,thd))) ,getn))
-							    ((memq fst hfns?e)
-							     ^(let ((i (func-get-info ,predfn))) ,getn))
-							    (t 0))))
-					       (t 0))))
-		       (while (and (< ,i ,n) ,pass)
-			 (set ,newargs (,getargs ,args2)
-			      ,results (catch* (apply ',func ,newargs)
-					       (error (e . a) e))
-			      ,excpt (car (memq ,results
-						(remq t (uniq (flatten (exception-subtype-map))))))
-			      ,pass (and (not ,excpt)
-					 ,(let ((p (if islfun ^(fun ,predfn)
-						       (if issym ^(quotesym ,predfn)
-							   predfn))))
-					    ^(let ((results ,results)
-						   (args ,newargs))
-					       (caseq ,nargs
-						      (0 ,p)
-						      (1 (call ,p results))
-						      (2 (call ,p results args))
-						      (t t))))))
-			 ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
-			 (inc ,i))
-		       (when ,excpt
-			 (error "Exception: ~a\nWhen ~a called with args: ~a"
-				,excpt ',func ,newargs))
-		       ,(when predfn
-			  ^(when (not ,pass)
-			     (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
-				    ',func ,newargs ,results))))))))
+  (with-gensyms (newargs results excpt pass i args2 getargs fninfo nargs p)
+		^(labels ((,getargs (args)
+				    (typecase args
+				      (qc-type (call (fun ,getargs) args.(next)))
+				      (list (mapcar (fun ,getargs) args))
+				      (vec (mapcar (fun ,getargs) args))
+				      (t args))))
+		   (format t "Testing ~a\n" ',func)
+		   (let* (,newargs ,results ,excpt
+				   (,pass t) (,i 0)
+				   (,args2 ,(typecase args
+					      (sym args)
+					      (list ^(list ,*args))))
+				   (,fninfo (numargs ,predfn))
+				   (,nargs (+ (second ,fninfo) (third ,fninfo)))
+				   (,p (caseq (car ,fninfo)
+					      (lfun ,(when (and (symbolp predfn)
+								(not (macro-form-p
+								      predfn e)))
+						       ^(fun ,predfn)))
+					      (sym ,(when (symbolp predfn)
+						      ^(quotesym ,predfn)))
+					      ((list regex) ,(when (or (listp predfn)
+								       (regexp predfn))
+							       predfn))
+					      (t t))))
+		     (format t "fninfo: ~a, p: ~a\n" ,fninfo ,p) ;;DEBUG
+		     (while (and (< ,i ,n) ,pass)
+		       (set ,newargs (,getargs ,args2)
+			    ,results (catch* (apply ',func ,newargs)
+					     (error (e . a) e))
+			    ,excpt (car (memq ,results
+					      (remq t (uniq (flatten
+							     (exception-subtype-map))))))
+			    ,pass (and (not ,excpt)
+				       (cond ((or (> ,nargs 1) (fourth ,fninfo))
+					      (if (eq (car ,fninfo) 'macro)
+						  (,predfn ,results ,newargs)
+						(call ,p ,results ,newargs)))
+					     ((> ,nargs 0) (call ,p ,results))
+					     (t (if (eq (car ,fninfo) 'symacro)
+						    ,(when (and (symbolp predfn)
+								(not (symbol-function predfn))
+								(not (lexical-fun-p e predfn)))
+						       ^(let ((results ,results)
+							      (args ,newargs))
+							  ,predfn))
+						  ,p)))))
+		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
+		       (inc ,i))
+		     (when ,excpt
+		       (error "Exception: ~a\nWhen ~a called with args: ~a"
+			      ,excpt ',func ,newargs))
+		     ,(when predfn
+			^(when (not ,pass)
+			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
+				  ',func ,newargs ,results)))))))
 
 ;; func-get-info returns a list of the following information about its function argument:
 ;; the function type (interpreted or intrinsic), number of required args, number of optional args,
@@ -333,33 +353,35 @@
 ;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
 ;; and the 4th will be "t".
 (defun func-get-info (func)
-  (let* ((f (typecase func
-	      (string func)
-	      (fun (tostring func))
-	      (sym (tostring (symbol-function func)))
-	      (t (error "Invalid arg: ~a" func))))
-	 (type (cond ((search-regex f #/interpreted/) 'interpreted)
-		     ((search-regex f #/intrinsic/) 'intrinsic)
-		     (t 'unknown)))
-	 (variadic (not (null (search-regex f #/variadic/))))
-	 (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
-	 (l2 (when l (sub-str l 7)))
-	 (p (search-regst f #/[0-9]+ +param/))
-	 (o (search-regst f #/[0-9]+ +optional/))
-	 reqparams optparams variadic)
-    (if l2
-	(if (search-regst l2 #/nil/)
-	    (set reqparams 0 optparams 0 variadic nil)
-	  (if (search-regst l2 #/\(/)
-	      (let* ((parts1 (partition* (split-str l2 " ") (op posqual ".")))
-		     (parts2 (partition* (car parts1) (op posqual ":"))))
-		(set reqparams (len (car parts2))
-		     optparams (len (cadr parts2))
-		     variadic (not (null (cadr parts1)))))
-	    (set reqparams 0 optparams 0 variadic t)))
-      (set reqparams (if p (int-str (sub-str p nil -6)) 0)
-	   optparams (if o (int-str (sub-str o nil -9)) 0)
-	   variadic (not (null (search-regex f #/variadic/)))))
-    (list type reqparams optparams variadic)))
+  (if (regexp func)
+      (list 'regex 1 0 nil)
+    (let* ((f (typecase func
+		(string func)
+		(fun (tostring func))
+		(sym (tostring (symbol-function func)))
+		(t (error "Invalid arg: ~a" func))))
+	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
+		       ((search-regex f #/intrinsic/) 'intrinsic)
+		       (t 'unknown)))
+	   (variadic (not (null (search-regex f #/variadic/))))
+	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
+	   (l2 (when l (sub-str l 7)))
+	   (p (search-regst f #/[0-9]+ +param/))
+	   (o (search-regst f #/[0-9]+ +optional/))
+	   reqparams optparams variadic)
+      (if l2
+	  (if (search-regst l2 #/nil/)
+	      (set reqparams 0 optparams 0 variadic nil)
+	    (if (search-regst l2 #/\(/)
+		(let* ((parts1 (partition* (split-str l2 " ") (op posqual ".")))
+		       (parts2 (partition* (car parts1) (op posqual ":"))))
+		  (set reqparams (len (car parts2))
+		       optparams (len (cadr parts2))
+		       variadic (not (null (cadr parts1)))))
+	      (set reqparams 0 optparams 0 variadic t)))
+	(set reqparams (if p (int-str (sub-str p nil -6)) 0)
+	     optparams (if o (int-str (sub-str o nil -9)) 0)
+	     variadic (not (null (search-regex f #/variadic/)))))
+      (list type reqparams optparams variadic))))
 
 
