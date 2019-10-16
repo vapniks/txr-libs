@@ -266,8 +266,8 @@
 ;;   args of func.
 ;; - A form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
 ;;   its arguments. 
-;; - A symbol macro which expands to a form of the above type.
-;; - A macro which takes 2 arguments (return value & args of func).
+;; - A symbol macro which expands to a form of the above type (ignore the warnings about "unbound function").
+;; - A macro which takes 2 arguments; return value & args of func (ignore the warnings about "unbound variable").
 ;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
 ;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
 ;; and these; (andf 'listp (opip len (< 3))) (and (listp results) (< 3 (len results))) (and (listp @1) (< 3 (len @1)))
