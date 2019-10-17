@@ -211,7 +211,7 @@
 	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
 		       ((search-regex f #/intrinsic/) 'intrinsic)
 		       (t 'unknown)))
-	   (variadic (not (null (search-regex f #/variadic/))))
+	   (variadic (true (search-regex f #/variadic/)))
 	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
 	   (l2 (when l (sub-str l 7)))
 	   (p (search-regst f #/[0-9]+ +param/))
@@ -225,11 +225,11 @@
 		       (parts2 (partition* (car parts1) (op posqual ":"))))
 		  (set reqparams (len (car parts2))
 		       optparams (len (cadr parts2))
-		       variadic (not (null (cadr parts1)))))
+		       variadic (true (cadr parts1))))
 	      (set reqparams 0 optparams 0 variadic t)))
 	(set reqparams (if p (int-str (sub-str p nil -6)) 0)
 	     optparams (if o (int-str (sub-str o nil -9)) 0)
-	     variadic (not (null (search-regex f #/variadic/)))))
+	     variadic (true (search-regex f #/variadic/))))
       (list type reqparams optparams variadic))))
 
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
@@ -265,7 +265,7 @@
 					   (parts1 (when args (partition* args (op posqual "."))))
 					   (parts2 (when args (partition* (car parts1) (op posqual ":")))))
 				      ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
-					     ,(not (null (cadr parts1)))))))
+					     ,(true (cadr parts1))))))
 			 ^(let ((i (func-get-info (quotesym ,frm))))
 			    (list 'sym (second i) (third i) (fourth i))))))))
       (fun ^(let ((i (func-get-info ,frm)))
@@ -333,51 +333,54 @@
 				      (vec (mapcar (fun ,getargs) args))
 				      (t args))))
 		   (format t "Testing ~a\n" ',func)
-		   (let* (,newargs ,results ,excpt
-				   (,pass t) (,i 0)
-				   (,args2 ,(typecase args
-					      (sym args)
-					      (list ^(list ,*args))))
-				   (,fninfo (numargs ,predfn))
-				   (,nargs (+ (second ,fninfo) (third ,fninfo)))
-				   (,p (caseq (car ,fninfo)
-					      (lfun ,(when (and (symbolp predfn)
-								(not (macro-form-p
-								      predfn e)))
-						       ^(fun ,predfn)))
-					      (sym ,(when (symbolp predfn)
-						      ^(quotesym ,predfn)))
-					      ((list regex) ,(when (or (listp predfn)
-								       (regexp predfn))
-							       predfn))
-					      (t t))))
+		   (let* (args results ,excpt
+			       (,pass t) (,i 0)
+			       (,args2 ,(typecase args
+					  (sym args)
+					  (list ^(list ,*args))))
+			       (,fninfo (numargs ,predfn))
+			       (,nargs (+ (second ,fninfo) (third ,fninfo)))
+			       (,p (caseq (car ,fninfo) ;NOTE: when forms prevent warnings on macro expansion
+					  (lfun ,(when (and (symbolp predfn)
+							    (not (macro-form-p predfn e)))
+						   ^(fun ,predfn)))
+					  (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
+					  (t t))))
 		     (while (and (< ,i ,n) ,pass)
-		       (set ,newargs (,getargs ,args2)
-			    ,results (catch* (apply ',func ,newargs)
-					     (error (e . a) e))
-			    ,excpt (car (memq ,results
+		       (set args (,getargs ,args2)
+			    results (catch* (apply ',func args) (error (e . a) e))
+			    ,excpt (car (memq results
 					      (remq t (uniq (flatten
 							     (exception-subtype-map))))))
-			    ,pass (and (not ,excpt)
-				       (cond ((or (> ,nargs 1) (fourth ,fninfo))
-					      (call ,p ,results ,newargs))
-					     ((> ,nargs 0) (call ,p ,results))
-					     (t (if (eq (car ,fninfo) 'symacro)
-						    ,(when (and (symbolp predfn)
-								(not (symbol-function predfn))
-								(not (lexical-fun-p e predfn)))
-						       ^(let ((results ,results)
-							      (args ,newargs))
-							  ,predfn))
-						  ,p)))))
-		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
+			    ,pass
+			    (and (not ,excpt)
+				 ;; will use predfn instead of p for symbolmacros in cond statement 
+				 ;; below to avoid warning messages
+				 (cond ((or (> ,nargs 1) (fourth ,fninfo))
+					(call ,(if (or (listp predfn)
+						       (regexp predfn))
+						   predfn p)
+					      results args))
+				       ((> ,nargs 0)
+					(call ,(if (or (listp predfn) (regexp predfn))
+						   predfn p)
+					      results))
+				       (t (caseq (car ,fninfo)
+						 (symacro
+						  ,(when (and (symbolp predfn)
+							      (not (symbol-function predfn))
+							      (not (lexical-fun-p e predfn)))
+						     predfn))
+						 (list ,(when (listp predfn) predfn))
+						 (t t))))))
+		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" args results))
 		       (inc ,i))
 		     (when ,excpt
 		       (error "Exception: ~a\nWhen ~a called with args: ~a"
-			      ,excpt ',func ,newargs))
+			      ,excpt ',func args))
 		     ,(when predfn
 			^(when (not ,pass)
 			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
-				  ',func ,newargs ,results)))))))
+				  ',func args results)))))))
 
 
