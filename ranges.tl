@@ -148,9 +148,9 @@
   (sort (reduce-left
 	 (do let ((r1 (car @1)) (r2 @2))
 	   (cond ((null r1) (list r2))
-		 ((lequal (rto r2) (rto r1)) @1)
-		 ((lequal (rfrom r2) (ifa (eq (rto r1) :) it (succ it)))
-		  (cons (rcons (rfrom r1) (rto r2)) (cdr @1)))
+		 ((lequal (to r2) (to r1)) @1)
+		 ((lequal (rfrom r2) (ifa (eq (to r1) :) it (succ it)))
+		  (cons (rcons (rfrom r1) (to r2)) (cdr @1)))
 		 (t (cons r2 @1))))
 	 (mapcar (opip last car) ;; for each start point keep longest range
 		 (partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil) (lop rrev* t))
@@ -163,9 +163,9 @@
   (and (not (memq nil args))
        (reduce-left
 	(ret (cond ((zerop @1) @2)
-		   ((greater (from @2) (to @1)) (return-from risec))
+		   ((greater (rfrom @2) (to @1)) (return-from risec))
 		   ((lequal (to @2) (to @1)) @2)
-		   (t (rcons (from @2) (to @1)))))
+		   (t (rcons (rfrom @2) (to @1)))))
 	(mapcar 'car ;; sort ranges and remove redundant ones
 		(partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil)
 							 (lop rrev* t))
