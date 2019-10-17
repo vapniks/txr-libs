@@ -79,4 +79,8 @@
 (pprinl "29: FAIL TEST: (lambda (a b) nil)")
 (catch (quickcheck 3 (rto 1..4) (lambda (a b) nil))
   (error (err . rest) (format t "~s\n" err)))
-
+(pprinl "30: PASS TEST: (integerp results)")
+(quickcheck 3 (rto 1..4) (integerp results))
+(pprinl "31: FAIL TEST: (rangep results)")
+(catch (quickcheck 3 (rto 1..4) (rangep results))
+  (error (err . rest) (format t "~s\n" err)))
