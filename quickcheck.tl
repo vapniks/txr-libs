@@ -333,35 +333,36 @@
 				      (vec (mapcar (fun ,getargs) args))
 				      (t args))))
 		   (format t "Testing ~a\n" ',func)
-		   (let* (args results ,excpt
-			       (,pass t) (,i 0)
-			       (,args2 ,(typecase args
-					  (sym args)
-					  (list ^(list ,*args))))
-			       (,fninfo (numargs ,predfn))
-			       (,type (car ,fninfo))
-			       (,nargs (+ (second ,fninfo) (third ,fninfo)))
-			       (,p (caseq ,type
-					  ;; Note: "when" forms are used to prevent warnings on macro expansion
-					  (lfun ,(when (and (symbolp predfn)
-							    (not (macro-form-p predfn e)))
-						   ^(fun ,predfn)))
-					  (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
-					  ((list symacro)
-					   (if (and (eq ,nargs 0)
-						    (not (fourth ,fninfo)))
-					       (ret (let ((results @1)
-							  (args @2))
-						      ,(when (or (listp predfn)
-								 (eq (lexical-lisp1-binding e predfn)
-								     :symacro))
-							 predfn)))
-					     ,(when (listp predfn) predfn)))
-					  (t ,(when (regexp predfn) predfn)))))
+		   (let* (,newargs ,results ,excpt
+				   (,pass t) (,i 0)
+				   (,args2 ,(typecase args
+					      (sym args)
+					      (list ^(list ,*args))))
+				   (,fninfo (numargs ,predfn))
+				   (,type (car ,fninfo))
+				   (,nargs (+ (second ,fninfo) (third ,fninfo)))
+				   (,p (caseq ,type
+					      ;; Note: "when" forms are used to prevent warnings on macro expansion
+					      (lfun ,(when (and (symbolp predfn)
+								(not (macro-form-p predfn e)))
+						       ^(fun ,predfn)))
+					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
+					      ((list symacro)
+					       (if (and (eq ,nargs 0)
+							(not (fourth ,fninfo)))
+						   (ret (let ((results @1)
+							      (args @2))
+							  ,(when (or (listp predfn)
+								     (eq (lexical-lisp1-binding e predfn)
+									 :symacro))
+							     predfn)))
+						 (let ((results 1) (args 2))
+						   ,(when (listp predfn) predfn))))
+					      (t ,(when (regexp predfn) predfn)))))
 		     (while (and (< ,i ,n) ,pass)
-		       (set args (,getargs ,args2)
-			    results (catch* (apply ',func args) (error (e . a) e))
-			    ,excpt (car (memq results
+		       (set ,newargs (,getargs ,args2)
+			    ,results (catch* (apply ',func ,newargs) (error (e . a) e))
+			    ,excpt (car (memq ,results
 					      (remq t (uniq (flatten
 							     (exception-subtype-map))))))
 			    ,pass
@@ -370,17 +371,17 @@
 					    (and (not (fourth ,fninfo))
 						 (= ,nargs 0)
 						 (memq ,type '(list symacro))))
-					(call ,p results args))
-				       ((> ,nargs 0) (call ,p results))
+					(call ,p ,results ,newargs))
+				       ((> ,nargs 0) (call ,p ,results))
 				       (t t))))
-		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" args results))
+		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 		       (inc ,i))
 		     (when ,excpt
 		       (error "Exception: ~a\nWhen ~a called with args: ~a"
-			      ,excpt ',func args))
+			      ,excpt ',func ,newargs))
 		     ,(when predfn
 			^(when (not ,pass)
 			   (error "Predicate failed when ~a called with args: ~a\nproducing results: ~a"
-				  ',func args results)))))))
+				  ',func ,newargs ,results)))))))
 
 
