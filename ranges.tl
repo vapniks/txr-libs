@@ -162,14 +162,15 @@
 (defun risec args
   (and (not (memq nil args))
        (reduce-left
-	(ret (cond ((zerop @1) @2)
+	(ret (cond ((eq @1 0) @2)
 		   ((greater (rfrom @2) (to @1)) (return-from risec))
 		   ((lequal (to @2) (to @1)) @2)
 		   (t (rcons (rfrom @2) (to @1)))))
 	(mapcar 'car ;; sort ranges and remove redundant ones
-		(partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil)
-							 (lop rrev* t))
-						  (remq nil args)))))
+		(partition-by ;;TODO what if we have a range like :..N
+		 'from (sort (mapcar (chain (op rset @1 nil nil nil)
+					    (lop rrev* t))
+				     (remq nil args)))))
 	0)))
 
 ;; The first argument to rdiff may be a single range or a list of ranges.
