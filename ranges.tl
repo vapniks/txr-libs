@@ -149,11 +149,11 @@
 	 (do let ((r1 (car @1)) (r2 @2))
 	   (cond ((null r1) (list r2))
 		 ((lequal (to r2) (to r1)) @1)
-		 ((lequal (rfrom r2) (ifa (eq (to r1) :) it (succ it)))
-		  (cons (rcons (rfrom r1) (to r2)) (cdr @1)))
+		 ((lequal (from r2) (ifa (eq (to r1) :) it (succ it)))
+		  (cons (rcons (from r1) (to r2)) (cdr @1)))
 		 (t (cons r2 @1))))
 	 (mapcar (opip last car) ;; for each start point keep longest range
-		 (partition-by 'from (sort (mapcar (chain (op rset @1 nil nil nil) (lop rrev* t))
+		 (partition-by 'from (sort (mapcar (chain (op rset @1 (rfrom @1) nil nil) (lop rrev* t))
 						   (remq nil args)))))
 	 nil)))
 
