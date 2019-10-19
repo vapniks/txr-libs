@@ -254,7 +254,11 @@
       (sym (let ((llc (lexical-lisp1-binding e frm)))
 	     (caseq llc
 		    (:symacro '(list 'symacro 0 0 nil))
-		    (:var '(list 'var 0 0 nil))
+		    (:var (format t "typeof frm: ~a\n" (typeof frm))
+			  ^(if (functionp ,frm)
+			       (let ((i (func-get-info ,frm)))
+				 (list 'var (second i) (third i) (fourth i)))
+			     (list 'var 0 0 nil)))
 		    (:fun ^(let ((i (func-get-info (fun ,frm))))
 			     (list 'lfun (second i) (third i) (fourth i))))
 		    (t (if (macro-form-p ^(,frm) e)
@@ -346,7 +350,7 @@
 					      (lfun ,(when (and (symbolp predfn)
 								(not (macro-form-p predfn e)))
 						       ^(fun ,predfn)))
-					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
+					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn))) ;; TODO; use equot instead 
 					      ((list symacro)
 					       (if (and (eq ,nargs 0)
 							(not (fourth ,fninfo)))
