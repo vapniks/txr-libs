@@ -193,6 +193,7 @@
 	   seq (n 1..10) uniq
 	   (:postinit (self) (set self.iter (rndvecs* self.seq self.n self.uniq))))
 
+;; TODO : use equot instead?
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
 ;; func-get-info returns a list of the following information about its function argument:
@@ -235,62 +236,113 @@
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) the input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
 ;; symacro (a symbol macro), sym (a symbol - could be a macro, function or dynamically bound variable),
-;; macro (a normal macro) or "other"
+;; qsym (a quoted symbol), anon (a lambda form), macro (a normal macro) or "other"
 ;; 2) the number of required args when treated as a function,
-;; 3) the number of optional args,
+;; 3) the number of optional args (if this is negative then the function is invalid, e.g. an andf form 
+;;    containing functions with inconsistent argument requirements),
 ;; 4) whether or not the function is variadic (i.e. whether or not it accepts any number of args).
+;;
 ;; Note: this function makes heuristic guesses by examining the first arg of any list input.
-;; It should be correct for most cases. symbol macros are treated as having 0 args, and the number of
-;; args for symbol macros cannot be determined so nils are returned in this case.
+;; It should be correct for most cases, however let bound variables bound to functions created from combinators will
+;; be reported as variadic functions with no required or optional args, even if there are required args in reality. 
+;; symbol macros are treated as having 0 args, and the number of args for symbol macros cannot be determined
+;; so nils are returned in this case.
+
+;; TODO - alter this so that it takes a list of arguments and applies the frm function to the appropriate number
+;; of those arguments (maybe with another arg to indicate how many args to use for variadic functions).
+;; TODO - check with builtin operators and macros (what to do in these cases?)
 (defmacro numargs (frm :env e)
-  (let ((hfns1 '(f^$ f^ f$ dup apf ipf ap ip ado ido))
-	(hfns2 '(ret mapf))
-	(hfns?a '(lop op do))
-	(hfns?b '(andf orf notf iff iffi chain chand opip oand fun))
-	(hfns?c '(callf))
-	(hfns?d '(lambda quote)))
-    (typecase frm
-      (regex ^(list 'regex 1 0 nil))
-      (sym (let ((llc (lexical-lisp1-binding e frm)))
-	     (caseq llc
-		    (:symacro '(list 'symacro 0 0 nil))
-		    (:var (format t "typeof frm: ~a\n" (typeof frm))
-			  ^(if (functionp ,frm)
-			       (let ((i (func-get-info ,frm)))
-				 (list 'var (second i) (third i) (fourth i)))
-			     (list 'var 0 0 nil)))
-		    (:fun ^(let ((i (func-get-info (fun ,frm))))
-			     (list 'lfun (second i) (third i) (fourth i))))
-		    (t (if (macro-form-p ^(,frm) e)
-			   (catch (macroexpand-1 ^(,frm) e)
-			     (error (err)
-				    (let* ((str (search-regst err #/params \([^()]*\)/))
-					   (args (when str (split-str (sub-str str 7) " ")))
-					   (parts1 (when args (partition* args (op posqual "."))))
-					   (parts2 (when args (partition* (car parts1) (op posqual ":")))))
-				      ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
-					     ,(true (cadr parts1))))))
-			 ^(let ((i (func-get-info (quotesym ,frm))))
-			    (list 'sym (second i) (third i) (fourth i))))))))
-      (fun ^(let ((i (func-get-info ,frm)))
-	      (list 'fun (second i) (third i) (fourth i))))
-      (list (symacrolet
-	     ((fst (car frm)) (snd (cadr frm)) (thd (caddr frm))
-	      (i2 '(second i)) (i3 '(third i)) (i4 '(fourth i))
-	      (nargs2 ^(+ ,i2 ,i3)))
-	     (cond ((memq fst hfns1) '(list 'list 1 0 nil))
-		   ((memq fst hfns2) '(list 'list 2 0 nil))
-		   ((memq fst hfns?a)
-		    ^(let ((i (func-get-info (fun ,snd))))
-		       (list 'list (max 0 (- ,i2 ,(- (len frm) 2)))
-			     (clamp 0 ,i3 (- ,nargs2 ,(- (len frm) 2)))
+  (typecase frm
+    (regex ^(list 'regex 1 0 nil))
+    (sym (let ((llc (lexical-lisp1-binding e frm)))
+	   (caseq llc
+		  (:symacro '(list 'symacro 0 0 nil))
+		  (:var ^(if (functionp ,frm)
+			     (let ((i (func-get-info ,frm)))
+			       (list 'var (second i) (third i) (fourth i)))
+			   (list 'var 0 0 nil)))
+		  (:fun ^(let ((i (func-get-info (fun ,frm))))
+			   (list 'lfun (second i) (third i) (fourth i))))
+		  (t (if (macro-form-p ^(,frm) e)
+			 (catch (macroexpand-1 ^(,frm) e)
+			   (error (err)
+				  (let* ((str (search-regst err #/params \([^()]*\)/))
+					 (args (when str (split-str (sub-str str 7) " ")))
+					 (parts1 (when args (partition* args (op posqual "."))))
+					 (parts2 (when args (partition* (car parts1) (op posqual ":")))))
+				    ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
+					   ,(true (cadr parts1))))))
+		       ^(let ((i (func-get-info
+				  ,(ignwarn (if (catch (functionp (eval frm))
+						  (error (err) nil))
+						frm ^(quotesym ,frm))))))
+			  (list 'sym (second i) (third i) (fourth i))))))))
+    (fun ^(let ((i (func-get-info ,frm))) (list 'fun (second i) (third i) (fourth i))))
+    (list (symacrolet
+	   ((fst (car frm)) (snd (cadr frm))
+	    (i2 '(second i)) (i3 '(third i)) (i4 '(fourth i)))
+	   (labels ((fn (x) (if (listp x)
+				(if (and (eq (car x) 'sys:var)
+					 (integerp (cadr x)))
+				    (cadr x)
+				  (unless (eq (car x) 'sys:expr) (maxarg x)))
+			      nil))
+		    (maxarg (lst) (let ((l (remq nil (mapcar (fun fn) lst))))
+				    (when l (apply 'max l)))))
+	     (cond ((memq fst '(f^$ f^ f$ dup)) '(list 'list 1 0 nil))
+		   ((eq fst 'flipargs ) '(list 'list 2 0 nil))
+		   ((memq fst '(aret retf)) '(list 'list 0 0 t))
+		   ((eq fst 'do) ^(list 'list ,(maxarg frm) 0 t))
+		   ((memq fst '(lop op))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		       (list 'list (or ,(maxarg frm)
+				       (max 0 (- ,i2 ,(- (len frm) 2))))
+			     0 ,i4)))
+		   ((memq fst '(juxt notf iff iffi chain chand opip oand fun))
+		    ^(cons 'list (cdr (numargs ,snd))))
+		   ((memq fst '(apf ipf))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		       (list 'list 1 (- (+ (second i) (third i)) 1) ,i4)))
+		   ((memq fst '(ap ip))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		       (list 'list 1 (- (or ,(maxarg frm)
+					    (max 0 (- ,i2 ,(- (len frm) 2))))
+					1)
 			     ,i4)))
-		   ((memq fst hfns?b) ^(cons 'list (cdr (numargs ,snd))))
-		   ((memq fst hfns?c) ^(cons 'list (cdr (numargs ,thd))))
-		   ((memq fst hfns?d)
-		    ^(let ((i (func-get-info ,frm))) (list 'list ,i2 ,i3 ,i4)))
-		   (t '(list 'list 0 0 nil)))))
-      (t '(list 'other 0 0 nil)))))
+		   ((memq fst '(ado ido))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		       (list 'list 1 ,(- (maxarg frm) 1) t)))
+		   ((eq fst 'callf)
+		    ^(let* ((info (remq nil
+					(list (when ,(third frm) (numargs ,(third frm)))
+					      (when ,(fourth frm) (numargs ,(fourth frm)))
+					      (when ,(fifth frm) (numargs ,(fifth frm)))
+					      (when ,(sixth frm) (numargs ,(sixth frm))))))
+			    (req (apply 'max (mapcar 'cadr info)))
+			    (opt (apply 'min (mapcar
+					      (ret (let ((n (- (+ (cadr @1) (caddr @1)) req)))
+						     (if (cadddr @1) (max 0 n) n)))
+					      info))))
+		       (list 'list req opt (true (all (mapcar 'cadddr info))))))
+		   ((memq fst '(andf orf))
+		    ^(let* ((info (remq nil
+					(list (when ,(second frm) (numargs ,(second frm)))
+					      (when ,(third frm) (numargs ,(third frm)))
+					      (when ,(fourth frm) (numargs ,(fourth frm)))
+					      (when ,(fifth frm) (numargs ,(fifth frm)))
+					      (when ,(sixth frm) (numargs ,(sixth frm))))))
+			    (req (apply 'max (mapcar 'cadr info)))
+			    (opt (apply 'min (mapcar
+					      (ret (let ((n (- (+ (cadr @1) (caddr @1)) req)))
+						     (if (cadddr @1) (max 0 n) n)))
+					      info))))
+		       (list 'list req opt (true (all (mapcar 'cadddr info))))))
+		   ((eq fst 'mapf) ^(list 'list 1 ,(max 0 (- (len frm) 3)) t))
+		   ((eq fst 'ret) ^(list 'list ,(or (maxarg frm) 0) 0 t))
+		   ((eq fst 'quote) ^(let ((i (func-get-info ,frm))) (list 'qsym ,i2 ,i3 ,i4)))
+		   ((eq fst 'lambda) ^(let ((i (func-get-info ,frm))) (list 'anon ,i2 ,i3 ,i4)))
+		   (t '(list 'list 0 0 nil))))))
+    (t '(list 'other 0 0 nil))))
 
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
@@ -308,6 +360,7 @@
 ;; - A form in which @1/results will be replaced by the results of the "func" call, and @2/args will be replaced by
 ;;   its arguments. 
 ;; - A symbol macro which expands to a form of the above type.
+;; - A lexical variable
 ;; e.g. the following values for pred yield the same results; equal, (equal @1 @2) & (equal results args)
 ;; and so do these; #/foo/ (search-regst @1 #/foo/) (search-regst results #/foo/) (op search-regst @1 #/foo/)
 ;; and these; (andf 'listp (opip len (< 3))) (and (listp results) (< 3 (len results))) (and (listp @1) (< 3 (len @1)))
@@ -328,6 +381,8 @@
 
 ;; TODO - add shrink facility like Haskells quickcheck, or better; use logical inference (minikanren/witness sets)
 ;;        based on boolean attributes derived from arguments.
+;;        This article about shrinking might be useful: https://hypothesis.works/articles/integrated-shrinking/
+;;        and this one: https://hypothesis.works/articles/types-and-properties/
 (defmacro quickcheck (n (func . args) : predfn prinres :env e)
   (with-gensyms (newargs results excpt pass i args2 getargs fninfo type nargs p)
 		^(labels ((,getargs (args)
@@ -348,10 +403,13 @@
 				   (,p (caseq ,type
 					      ;; Note: "when" forms are used to prevent warnings on macro expansion
 					      (lfun ,(when (and (symbolp predfn)
-								(not (macro-form-p predfn e)))
-						       ^(fun ,predfn)))
-					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn))) ;; TODO; use equot instead 
-					      ((list symacro)
+					      			(not (macro-form-p predfn e)))
+					      	       ^(fun ,predfn)))
+					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn))) ;; TODO; use equot instead
+					      (var ,(when (and (symbolp predfn)
+							       (not (macro-form-p predfn e)))
+						      ^(op ,predfn))) ;; op prevents warnings
+					      ((list symacro qsym anon)
 					       (if (and (eq ,nargs 0)
 							(not (fourth ,fninfo)))
 						   (ret (let ((results @1)
