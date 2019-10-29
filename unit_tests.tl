@@ -33,8 +33,7 @@
 	 (RrngS (new (qc-range ints10 ints10 nil nil 1..3 nil)))
 	 (Rl5rng10 (new (qc-list (list (new (qc-range ints10 ints10 nil nil nil nil))) 1..5)))
 	 (Rl5rng10IS (new (qc-list (list (new (qc-range ints10 ints10 nil nil 1..3 t))) 1..5)))
-	 (Rl5rngSC (new (qc-list (list (new (qc-range a2z a2z nil nil 1..3 nil))) 1..5)))
-	 )
+	 (Rl5rngSC (new (qc-list (list (new (qc-range a2z a2z nil nil 1..3 nil))) 1..5))))
     (test (rfrom :..5) 0)
     (test (rfrom :..5..2) 0)
     (test (rto 0..:) :)
@@ -234,6 +233,12 @@
     (test (rdiff 1..1 0..5) (nil #R(0 0) #R(2 5)))
     (test (rdiff 1..1 0..5 7..7) (nil #R(0 0) #R(2 5) #R(7 7)))
     (test (rdiff 0..5 1..1) ((#R(0 0) #R(2 5))))
+    
+    (quickcheck 50 (rdiff . Rl5rng10) (andf 'listp (chain 'car (lop all (orf 'null 'rangep)))
+					    (chain 'cdr (lop all (orf 'null 'rangep)))))
+    (quickcheck 50 (rdiff . Rl5rng10IS) (andf 'listp (chain 'car (lop all (orf 'null 'rangep)))))
+    (quickcheck 50 (rdiff . Rl5rngSC) (andf 'listp (chain 'car (lop all (orf 'null 'rangep)))))
+    
     (test (rsplit 0..10) (#R(0 10)))
     (test (rsplit 0..10 0) (#R(0 10)))
     (test (rsplit 0..10 10) (#R(0 10)))
