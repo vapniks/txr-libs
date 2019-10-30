@@ -193,7 +193,6 @@
 	   seq (n 1..10) uniq
 	   (:postinit (self) (set self.iter (rndvecs* self.seq self.n self.uniq))))
 
-;; TODO : use equot instead?
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
 ;; func-get-info returns a list of the following information about its function argument:
@@ -201,6 +200,8 @@
 ;; and whether or not the function is variadic (allows any number of args).
 ;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
 ;; and the 4th will be "t".
+
+;; TODO: use func-get-form where possible to get more accurate results
 (defun func-get-info (func)
   (if (regexp func)
       (list 'regex 1 0 nil)
@@ -245,8 +246,6 @@
 ;; Note: this function makes heuristic guesses by examining the first arg of any list input.
 ;; It should be correct for most cases, however let bound variables bound to functions created from combinators will
 ;; be reported as variadic functions with no required or optional args, even if there are required args in reality. 
-;; symbol macros are treated as having 0 args, and the number of args for symbol macros cannot be determined
-;; so nils are returned in this case.
 
 ;; TODO - alter this so that it takes a list of arguments and applies the frm function to the appropriate number
 ;; of those arguments (maybe with another arg to indicate how many args to use for variadic functions).
@@ -256,7 +255,15 @@
     (regex ^(list 'regex 1 0 nil))
     (sym (let ((llc (lexical-lisp1-binding e frm)))
 	   (caseq llc
-		  (:symacro '(list 'symacro 0 0 nil))
+		  (:symacro ^(let ((frm2 (equot ,frm)))
+			       (typecase frm2
+				 (list (ifa (functionp (ignwarn (ignerr (eval frm2))))
+					    (cons 'symacro (cdr (func-get-info it)))
+					    '(symacro 0 0 nil)))
+				 (sym (ifa (ignwarn (ignerr (symbol-function frm2)))
+					   (cons 'symacro (cdr (func-get-info frm2)))
+					   '(symacro 0 0 nil)))
+				 (t '(symacro 0 0 nil)))))
 		  (:var ^(if (functionp ,frm)
 			     (let ((i (func-get-info ,frm)))
 			       (list 'var (second i) (third i) (fourth i)))
@@ -405,7 +412,7 @@
 					      (lfun ,(when (and (symbolp predfn)
 					      			(not (macro-form-p predfn e)))
 					      	       ^(fun ,predfn)))
-					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn))) ;; TODO; use equot instead
+					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
 					      (var ,(when (and (symbolp predfn)
 							       (not (macro-form-p predfn e)))
 						      ^(op ,predfn))) ;; op prevents warnings
