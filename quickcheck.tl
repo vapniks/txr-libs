@@ -200,17 +200,12 @@
 ;; and whether or not the function is variadic (allows any number of args).
 ;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
 ;; and the 4th will be "t".
-
-;; TODO: use func-get-form where possible to get more accurate results
 (defun func-get-info (func)
   (if (regexp func)
       (list 'regex 1 0 nil)
-    (let* ((f (typecase func
+    (let* ((f (typecase func		;;TODO: should I include "list" case?
 		(string func)
-		(fun (ifa (search-regex (tostring func) #/interpreted/)
-			  (cat-str (list "interpreted "
-					 (tostring (func-get-form func))))
-			  it))
+		(fun (regsub #/\s+/ " " (tostring func)))
 		(sym (tostring (symbol-function func)))
 		(t (error "Invalid arg: ~a" func))))
 	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
@@ -220,6 +215,16 @@
 	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
 	   (l2 (when l (sub-str l 7)))
 	   reqparams optparams variadic)
+      (if (and (eq type 'interpreted) ;; TODO; handle cases like (lop less 1 (+ @3 2))
+	       (eq (typeof func) 'fun))
+	  (let ((src (func-get-form func)))
+	    (if (and (consp (caddr src))
+		     (eq 'dwim (caaddr src))
+		     (eq 'sys:apply (cadaddr src)))
+		(return-from func-get-info
+		  (func-get-info
+		   (let ((func2 (cadr (cdaddr src))))
+		     (if (listp func2) (eval func2) func2)))))))
       (if l2
 	  (if (search-regst l2 #/nil/)
 	      (set reqparams 0 optparams 0 variadic nil)
@@ -241,17 +246,22 @@
       (list type reqparams optparams variadic))))
 
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
-;; 1) the input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
+;; 1) The input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
 ;; symacro (a symbol macro), sym (a symbol - could be a macro, function or dynamically bound variable),
-;; qsym (a quoted symbol), anon (a lambda form), macro (a normal macro) or "other"
-;; 2) the number of required args when treated as a function,
-;; 3) the number of optional args (if this is negative then the function is invalid, e.g. an andf form 
-;;    containing functions with inconsistent argument requirements),
-;; 4) whether or not the function is variadic (i.e. whether or not it accepts any number of args).
+;; qsym (a quoted symbol), anon (a lambda form), macro (a normal macro) or "other".
+;; 2) The number of required args when treated as a function.
+;; 3) The number of optional args (if this is negative then the function is invalid.
+;; 4) Whether or not the function is variadic (i.e. whether or not it accepts any number of args).
 ;;
+;; If any of these values are negative numbers then the function is invalid, e.g. (andf 'rangep 'print)
+;; (rangep & print have different numbers of arguments), or (op wrap @1) (wrap requires 3 arguments).
+
 ;; Note: this function makes heuristic guesses by examining the first arg of any list input.
-;; It should be correct for most cases, however let bound variables bound to functions created from combinators will
-;; be reported as variadic functions with no required or optional args, even if there are required args in reality. 
+;; It should be correct for most cases, but if the input is a variable or symbol macro bound to an intrinsic function
+;; then numargs cannot know if the function was created from a combinator such as andf, orf, etc.
+;; In such cases it will be reported as a variadic function with no required or optional args,
+;; even if there may be required args in reality (note that macros op, do, lop & ldo create interpreted functions
+;; and so they should be reported correctly in this case).
 
 ;; TODO - alter this so that it takes a list of arguments and applies the frm function to the appropriate number
 ;; of those arguments (maybe with another arg to indicate how many args to use for variadic functions).
@@ -305,12 +315,13 @@
 	     (cond ((memq fst '(f^$ f^ f$ dup)) '(list 'list 1 0 nil))
 		   ((eq fst 'flipargs ) '(list 'list 2 0 nil))
 		   ((memq fst '(aret retf)) '(list 'list 0 0 t))
-		   ((eq fst 'do) ^(list 'list ,(maxarg frm) 0 t))
+		   ((memq fst '(do ldo)) ^(list 'list ,(or (maxarg frm) 1) 0 t))
 		   ((memq fst '(lop op))
-		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
-		       (list 'list (or ,(maxarg frm)
-				       (max 0 (- ,i2 ,(- (len frm) 2))))
-			     0 ,i4)))
+		    ^(let* ((i ',(eval (macroexpand-1 ^(numargs ,snd) e)))
+			    (m ,(maxarg frm))
+			    (req (if m (if (< m ,i2) (- m ,i2) m) (- ,i2 ,(- (len frm) 2))))
+			    (opt (- (+ ,i2 ,i3) (max 0 req))))
+		       (list 'list (if ,i4 (max req 0) req) (if ,i4 (max opt 0) opt) ,i4)))
 		   ((memq fst '(juxt notf iff iffi chain chand opip oand fun))
 		    ^(cons 'list (cdr (numargs ,snd))))
 		   ((memq fst '(apf ipf))
