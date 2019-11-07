@@ -245,8 +245,6 @@
 ;; even if there may be required args in reality (note that macros op, do, lop & ldo create interpreted functions
 ;; and so they should be reported correctly in this case).
 
-;; TODO - alter this so that it takes a list of arguments and applies the frm function to the appropriate number
-;; of those arguments (maybe with another arg to indicate how many args to use for variadic functions).
 ;; TODO - check with builtin operators and macros (what to do in these cases?)
 (defmacro numargs (frm :env e)
   (typecase frm
@@ -349,6 +347,16 @@
 		   ((eq fst 'lambda) ^(let ((i (func-get-info ,frm))) (list 'anon ,i2 ,i3 ,i4)))
 		   (t '(list 'list 0 0 nil))))))
     (t '(list 'other 0 0 nil))))
+
+;; applyargs takes a function (or quoted symbol for a function), fn, and some arguments for that
+;; function, and then applies fn to the appropriate number of arguments, e.g. (applyargs 'wrap 1 5 9
+;; 10 20) will apply the 'wrap function to args 1, 5 & 9, but ignore 10 & 20 because wrap takes just 3 args.
+(defmacro applyargs (fn . args)
+  ^(let* ((nargs (numargs ,fn))
+	  (r (second nargs))
+	  (o (third nargs))
+	  (v (fourth nargs)))
+     (apply ,fn (if v (list ,*args) (sub (list ,*args) 0 (+ r o))))))
 
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
