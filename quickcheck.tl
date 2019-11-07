@@ -193,57 +193,39 @@
 	   seq (n 1..10) uniq
 	   (:postinit (self) (set self.iter (rndvecs* self.seq self.n self.uniq))))
 
+;; TODO: struct for random files/dirs/symlinks/etc?
+
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
 ;; func-get-info returns a list of the following information about its function argument:
 ;; the function type (interpreted or intrinsic), number of required args, number of optional args,
 ;; and whether or not the function is variadic (allows any number of args).
-;; Note: if the function arg is variadic then the 3rd element of the returned list will be 0,
-;; and the 4th will be "t".
 (defun func-get-info (func)
   (if (regexp func)
       (list 'regex 1 0 nil)
-    (let* ((f (typecase func		;;TODO: should I include "list" case?
-		(string func)
-		(fun (regsub #/\s+/ " " (tostring func)))
-		(sym (tostring (symbol-function func)))
-		(t (error "Invalid arg: ~a" func))))
-	   (type (cond ((search-regex f #/interpreted/) 'interpreted)
-		       ((search-regex f #/intrinsic/) 'intrinsic)
-		       (t 'unknown)))
-	   (variadic (true (search-regex f #/variadic/)))
-	   (l (search-regst f (regex-compile "lambda +(\\([^()<>]+\\)|[^()<>\\s]+)")))
-	   (l2 (when l (sub-str l 7)))
-	   reqparams optparams variadic)
-      (if (and (eq type 'interpreted) ;; TODO; handle cases like (lop less 1 (+ @3 2))
-	       (eq (typeof func) 'fun))
+    (let* ((func2 (typecase func
+		    (fun func)
+		    (sym (symbol-function func))
+		    (t (error "Invalid arg: ~a" func)))))
+      (if (interp-fun-p func2)
 	  (let ((src (func-get-form func)))
-	    (if (and (consp (caddr src))
-		     (eq 'dwim (caaddr src))
-		     (eq 'sys:apply (cadaddr src)))
-		(return-from func-get-info
-		  (func-get-info
-		   (let ((func2 (cadr (cdaddr src))))
-		     (if (listp func2) (eval func2) func2)))))))
-      (if l2
-	  (if (search-regst l2 #/nil/)
-	      (set reqparams 0 optparams 0 variadic nil)
-	    (if (search-regst l2 #/\(/)
-		(let* ((parts1 (if (match-regex l2 #/\(\./)
-				   '(() (""))
-				 (partition* (split-str l2 " ")
-					     (op posqual "."))))
-		       (parts2 (partition* (car parts1) (op posqual ":"))))
-		  (set reqparams (len (car parts2))
-		       optparams (len (cadr parts2))
-		       variadic (true (cadr parts1))))
-	      (set reqparams 0 optparams 0 variadic t)))
-	(let ((p (search-regst f #/[0-9]+ +param/))
-	      (o (search-regst f #/[0-9]+ +optional/)))
-	  (set reqparams (if p (int-str (sub-str p nil -6)) 0)
-	       optparams (if o (int-str (sub-str o nil -9)) 0)
-	       variadic (true (search-regex f #/variadic/)))))
-      (list type reqparams optparams variadic))))
+	    ;; handle cases like (op rangep) which appear to be variadic but aren't really:
+	    (if (symbolp (cadr src))
+		(let* ((d (caddr src))
+		       (fn (caddr d)))
+		  (if (and (consp d)
+			   (eq 'dwim (car d))
+			   (eq 'sys:apply (cadr d)))
+		      (func-get-info (if (listp fn) (eval fn) fn))
+		    (list 'interpreted 0 0 t)))
+	      (let* ((args (cadr src))
+		     (parts (partition* (butlastn 0 args) (op posq :))))
+		(list 'interpreted (if (eq (car args) :) 0 (len (car parts)))
+		      (len (call (if (eq (car args) :) 'car 'cadr) parts))
+		      (true (cdr (last args)))))))
+	(let ((p (fun-fixparam-count func2))
+	      (o (fun-optparam-count func2)))
+	  (list 'intrinsic (- p o) o (fun-variadic func2)))))))
 
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) The input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
