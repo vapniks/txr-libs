@@ -253,10 +253,10 @@
 	   (caseq llc
 		  (:symacro ^(let ((frm2 (equot ,frm)))
 			       (typecase frm2
-				 (list (ifa (functionp (ignwarn (ignerr (eval frm2))))
+				 (list (ifa (functionp (ignerr (eval frm2)))
 					    (cons 'symacro (cdr (func-get-info it)))
 					    '(symacro 0 0 nil)))
-				 (sym (ifa (ignwarn (ignerr (symbol-function frm2)))
+				 (sym (ifa (ignerr (symbol-function frm2))
 					   (cons 'symacro (cdr (func-get-info frm2)))
 					   '(symacro 0 0 nil)))
 				 (t '(symacro 0 0 nil)))))
@@ -276,9 +276,9 @@
 				    ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
 					   ,(true (cadr parts1))))))
 		       ^(let ((i (func-get-info
-				  ,(ignwarn (if (catch (functionp (eval frm))
-						  (error (err) nil))
-						frm ^(quotesym ,frm))))))
+				  ,(if (catch (functionp (eval frm))
+					 (error (err) nil))
+				       frm ^(quotesym ,frm)))))
 			  (list 'sym (second i) (third i) (fourth i))))))))
     (fun ^(let ((i (func-get-info ,frm))) (list 'fun (second i) (third i) (fourth i))))
     (list (symacrolet
@@ -439,8 +439,7 @@
 		       (set ,newargs (,getargs ,args2)
 			    ,results (catch* (apply ',func ,newargs) (error (e . a) e))
 			    ,excpt (car (memq ,results
-					      (remq t (uniq (flatten
-							     (exception-subtype-map))))))
+					      (remq t (uniq (flatten (exception-subtype-map))))))
 			    ,pass
 			    (and (not ,excpt)
 				 (cond ((or (> ,nargs 1) (fourth ,fninfo)
