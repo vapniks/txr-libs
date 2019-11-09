@@ -351,12 +351,25 @@
 ;; applyargs takes a function (or quoted symbol for a function), fn, and some arguments for that
 ;; function, and then applies fn to the appropriate number of arguments, e.g. (applyargs 'wrap 1 5 9
 ;; 10 20) will apply the 'wrap function to args 1, 5 & 9, but ignore 10 & 20 because wrap takes just 3 args.
-(defmacro applyargs (fn . args)
-  ^(let* ((nargs (numargs ,fn))
-	  (r (second nargs))
-	  (o (third nargs))
-	  (v (fourth nargs)))
-     (apply ,fn (if v (list ,*args) (sub (list ,*args) 0 (+ r o))))))
+(defmacro applyargs (fn :env e1 . args)
+  (with-gensyms (nargs type r o v args2)
+		^(let* ((,nargs (numargs ,fn))
+			(,args2 (if (fourth ,nargs)
+				    (list ,*args)
+				  (sub (list ,*args) 0 (+ (second ,nargs) (third ,nargs))))))
+		   (apply (caseq (car ,nargs)
+				 ;; Note: "when" forms are used to prevent warnings on macro expansion
+				 (lfun ,(when (and (symbolp fn)
+						   (not (macro-form-p fn e1)))
+					  ^(fun ,fn)))
+				 (sym ,(when (symbolp fn) ^(quotesym ,fn)))
+				 (var ,(when (and (symbolp fn)
+						  (not (macro-form-p fn e1)))
+					 ^(op ,fn))) ;; op prevents warnings
+				 ;; TODO!!! (have tried in vain. Is it possible to handle macros properly?)
+				 (macro (error "Cannot handle macro argument!"))
+				 (t ,fn))
+			  ,args2))))
 
 ;; quickcheck calls "func" with random assignments to the arguments "args", and passes
 ;; the arguments & results of that call to the "pred" function/expression. If pred returns nil
@@ -442,13 +455,18 @@
 					      (remq t (uniq (flatten (exception-subtype-map))))))
 			    ,pass
 			    (and (not ,excpt)
+				 ;; TODO; use applyargs instead of cond
+				 ;; if blah blah then let results = ,results & args = ,newargs before calling applyargs?
+				 ;;(applyargs ,predfn ,results ,newargs)
 				 (cond ((or (> ,nargs 1) (fourth ,fninfo)
 					    (and (not (fourth ,fninfo))
 						 (= ,nargs 0)
 						 (memq ,type '(list symacro))))
 					(call ,p ,results ,newargs))
 				       ((> ,nargs 0) (call ,p ,results))
-				       (t t))))
+				       (t t))
+
+				 ))
 		       ,(when prinres ^(format t "Args : ~a\nVal  : ~a\n\n" ,newargs ,results))
 		       (inc ,i))
 		     (when ,excpt
