@@ -348,9 +348,10 @@
 		   (t '(list 'list 0 0 nil))))))
     (t '(list 'other 0 0 nil))))
 
-;; applyargs takes a function (or quoted symbol for a function), fn, and some arguments for that
-;; function, and then applies fn to the appropriate number of arguments, e.g. (applyargs 'wrap 1 5 9
-;; 10 20) will apply the 'wrap function to args 1, 5 & 9, but ignore 10 & 20 because wrap takes just 3 args.
+;; applyargs takes a function (or quoted symbol for a function, or variable or symbol macrolet containing
+;; a function), and some arguments for that function, and then applies fn to the appropriate number of arguments,
+;; e.g. (applyargs 'wrap 1 5 9 10 20) will apply the 'wrap function to args 1, 5 & 9, but ignore 10 & 20 because
+;; wrap takes just 3 args.
 (defmacro applyargs (fn :env e1 . args)
   (with-gensyms (nargs type r o v args2)
 		^(let* ((,nargs (numargs ,fn))
@@ -430,8 +431,8 @@
 				   (,p (caseq ,type
 					      ;; Note: "when" forms are used to prevent warnings on macro expansion
 					      (lfun ,(when (and (symbolp predfn)
-					      			(not (macro-form-p predfn e)))
-					      	       ^(fun ,predfn)))
+								(not (macro-form-p predfn e)))
+						       ^(fun ,predfn)))
 					      (sym ,(when (symbolp predfn) ^(quotesym ,predfn)))
 					      (var ,(when (and (symbolp predfn)
 							       (not (macro-form-p predfn e)))
