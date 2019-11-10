@@ -231,7 +231,8 @@
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) The input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
 ;; symacro (a symbol macro), sym (a symbol - could be a macro, function or dynamically bound variable),
-;; qsym (a quoted symbol), anon (a lambda form), macro (a normal macro) or "other".
+;; qsym (a quoted symbol), anon (a lambda form), macro (a normal macro), special (a special operator such as defvarl),
+;; seq (a (lazy) string or vector), hash or regex.
 ;; 2) The number of required args when treated as a function.
 ;; 3) The number of optional args (if this is negative then the function is invalid.
 ;; 4) Whether or not the function is variadic (i.e. whether or not it accepts any number of args).
@@ -246,7 +247,6 @@
 ;; even if there may be required args in reality (note that macros op, do, lop & ldo create interpreted functions
 ;; and so they should be reported correctly in this case).
 
-;; TODO - check with builtin operators and macros (what to do in these cases?)
 (defmacro numargs (frm :env e)
   (typecase frm
     (sym (let ((llc (lexical-lisp1-binding e frm)))
@@ -266,7 +266,7 @@
 			   (list 'var 0 0 nil)))
 		  (:fun ^(let ((i (func-get-info (fun ,frm))))
 			   (list 'lfun (second i) (third i) (fourth i))))
-		  (t (if (macro-form-p ^(,frm) e)
+		  (t (if (macro-form-p ^(,frm) e) ;TODO: fix this for defvar & similar cases if possible
 			 (catch (macroexpand-1 ^(,frm) e)
 			   (error (err)
 				  (let* ((str (search-regst err #/params \([^()]*\)/))
@@ -275,11 +275,13 @@
 					 (parts2 (when args (partition* (car parts1) (op posqual ":")))))
 				    ^(list 'macro ,(len (car parts2)) ,(len (cadr parts2))
 					   ,(true (cadr parts1))))))
-		       ^(let ((i (func-get-info
-				  ,(if (catch (functionp (eval frm))
-					 (error (err) nil))
-				       frm ^(quotesym ,frm)))))
-			  (list 'sym (second i) (third i) (fourth i))))))))
+		       (if (special-operator-p frm)
+			   '(list 'special 0 0 nil) ;TODO: figure out params of special operators if possible
+			 ^(let ((i (func-get-info
+				    ,(if (catch (functionp (eval frm))
+					   (error (err) nil))
+					 frm ^(quotesym ,frm)))))
+			    (list 'sym (second i) (third i) (fourth i)))))))))
     (fun ^(let ((i (func-get-info ,frm))) (list 'fun (second i) (third i) (fourth i))))
     (list (symacrolet
 	   ((fst (car frm)) (snd (cadr frm))
