@@ -202,10 +202,7 @@
 ;; number of required args, number of optional args, and whether or not the function is variadic (allows any number of args).
 (defun func-get-info (func)
   (typecase func
-    (list (list 'seq 1 1 nil))
-    (str (list 'seq 1 1 nil))
-    (lstr (list 'seq 1 1 nil))
-    (vec (list 'seq 1 1 nil))
+    (sequence (list 'seq 1 1 nil))
     (hash (list 'hash 1 1 nil))
     (regex (list 'regex 1 2 nil))
     (t (let* ((func2 (if (functionp func) func
@@ -252,7 +249,6 @@
 ;; TODO - check with builtin operators and macros (what to do in these cases?)
 (defmacro numargs (frm :env e)
   (typecase frm
-    (regex ^(list 'regex 1 0 nil)) ;; TODO - strings, arrays, hashes, vectors
     (sym (let ((llc (lexical-lisp1-binding e frm)))
 	   (caseq llc
 		  (:symacro ^(let ((frm2 (equot ,frm)))
@@ -350,7 +346,7 @@
 		   ((eq fst 'quote) ^(let ((i (func-get-info ,frm))) (list 'qsym ,i2 ,i3 ,i4)))
 		   ((eq fst 'lambda) ^(let ((i (func-get-info ,frm))) (list 'anon ,i2 ,i3 ,i4)))
 		   (t '(list 'list 0 0 nil))))))
-    (t '(list 'other 0 0 nil))))
+    (t ^(func-get-info ,frm))))
 
 ;; applyargs takes a function (or quoted symbol for a function, or variable or symbol macrolet containing
 ;; a function), and some arguments for that function, and then applies fn to the appropriate number of arguments,
