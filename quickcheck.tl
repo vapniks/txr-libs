@@ -197,35 +197,39 @@
 
 (defmacro quotesym (sym) (if (symbolp sym) ^(quote ,sym) sym))
 
-;; func-get-info returns a list of the following information about its function argument:
-;; the function type (interpreted or intrinsic), number of required args, number of optional args,
-;; and whether or not the function is variadic (allows any number of args).
+;; func-get-info returns a list of the following information about its function or otherwise callable argument:
+;; its type: regex, seq (a list, string, lazy string or vector), hash, interpreted or intrinsic (function)
+;; number of required args, number of optional args, and whether or not the function is variadic (allows any number of args).
 (defun func-get-info (func)
-  (if (regexp func)
-      (list 'regex 1 0 nil)
-    (let* ((func2 (typecase func
-		    (fun func)
-		    (sym (symbol-function func))
-		    (t (error "Invalid arg: ~a" func)))))
-      (if (interp-fun-p func2)
-	  (let ((src (func-get-form func)))
-	    ;; handle cases like (op rangep) which appear to be variadic but aren't really:
-	    (if (symbolp (cadr src))
-		(let* ((d (caddr src))
-		       (fn (caddr d)))
-		  (if (and (consp d)
-			   (eq 'dwim (car d))
-			   (eq 'sys:apply (cadr d)))
-		      (func-get-info (if (listp fn) (eval fn) fn))
-		    (list 'interpreted 0 0 t)))
-	      (let* ((args (cadr src))
-		     (parts (partition* (butlastn 0 args) (op posq :))))
-		(list 'interpreted (if (eq (car args) :) 0 (len (car parts)))
-		      (len (call (if (eq (car args) :) 'car 'cadr) parts))
-		      (true (cdr (last args)))))))
-	(let ((p (fun-fixparam-count func2))
-	      (o (fun-optparam-count func2)))
-	  (list 'intrinsic (- p o) o (fun-variadic func2)))))))
+  (typecase func
+    (list (list 'seq 1 1 nil))
+    (str (list 'seq 1 1 nil))
+    (lstr (list 'seq 1 1 nil))
+    (vec (list 'seq 1 1 nil))
+    (hash (list 'hash 1 1 nil))
+    (regex (list 'regex 1 2 nil))
+    (t (let* ((func2 (if (functionp func) func
+		       (if (symbolp func) (symbol-function func)
+			 (error "Invalid arg: ~a" func)))))
+	 (if (interp-fun-p func2)
+	     (let ((src (func-get-form func)))
+	       ;; handle cases like (op rangep) which appear to be variadic but aren't really:
+	       (if (symbolp (cadr src))
+		   (let* ((d (caddr src))
+			  (fn (caddr d)))
+		     (if (and (consp d)
+			      (eq 'dwim (car d))
+			      (eq 'sys:apply (cadr d)))
+			 (func-get-info (if (listp fn) (eval fn) fn))
+		       (list 'interpreted 0 0 t)))
+		 (let* ((args (cadr src))
+			(parts (partition* (butlastn 0 args) (op posq :))))
+		   (list 'interpreted (if (eq (car args) :) 0 (len (car parts)))
+			 (len (call (if (eq (car args) :) 'car 'cadr) parts))
+			 (true (cdr (last args)))))))
+	   (let ((p (fun-fixparam-count func2))
+		 (o (fun-optparam-count func2)))
+	     (list 'intrinsic (- p o) o (fun-variadic func2))))))))
 
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) The input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
@@ -248,7 +252,7 @@
 ;; TODO - check with builtin operators and macros (what to do in these cases?)
 (defmacro numargs (frm :env e)
   (typecase frm
-    (regex ^(list 'regex 1 0 nil))
+    (regex ^(list 'regex 1 0 nil)) ;; TODO - strings, arrays, hashes, vectors
     (sym (let ((llc (lexical-lisp1-binding e frm)))
 	   (caseq llc
 		  (:symacro ^(let ((frm2 (equot ,frm)))
@@ -358,15 +362,15 @@
 			(,args2 (if (fourth ,nargs)
 				    (list ,*args)
 				  (sub (list ,*args) 0 (+ (second ,nargs) (third ,nargs))))))
-		   (apply (caseq (car ,nargs)
+		   (apply (caseq (car ,nargs) ;; lfun var sym macro - symacro qsym anon other
 				 ;; Note: "when" forms are used to prevent warnings on macro expansion
 				 (lfun ,(when (and (symbolp fn)
 						   (not (macro-form-p fn e1)))
 					  ^(fun ,fn)))
-				 (sym ,(when (symbolp fn) ^(quotesym ,fn)))
 				 (var ,(when (and (symbolp fn)
 						  (not (macro-form-p fn e1)))
-					 ^(op ,fn))) ;; op prevents warnings
+					 ^(op ,fn)))
+				 (sym ,(when (symbolp fn) ^(quotesym ,fn))) ;; op prevents warnings
 				 ;; TODO!!! (have tried in vain. Is it possible to handle macros properly?)
 				 (macro (error "Cannot handle macro argument!"))
 				 (t ,fn))
