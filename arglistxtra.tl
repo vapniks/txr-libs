@@ -1,9 +1,8 @@
-;; Helper functions for handling function arguments.
+;; Helper functions for handling functions & their arguments.
 
 (defpackage arglistxtra (:fallback usr))
 (in-package arglistxtra)
 
-;; Useful argument handling macros and functions
 ;; listtypep returns t if "lst" is a list of elements each of which has a supertype
 ;; listed (unquoted) in the remaining args, e.g: (listtypep '(1 #\a 3) number chr)
 (defmacro listtypep (lst : . types)
@@ -80,4 +79,45 @@
 			       (some ',types (op typep ,lvar)))
 			   (tolistlist (list ,lvar) ,nvar)
 			 (error "Invalid arg: ~a" ,lvar)))))))
+
+;; Given a list (e.g. a rest function argument), remove all keyword args and corresponding values from the list.
+;; By default all symbols starting with : are treated as keyword args to remove, but if you want
+;; to remove specific keywords then supply them as arguments after the list.
+;; Note: if the final symbol in lst is a keyword it will be removed even though it has no corresponding value.
+(defun remove-keyword-args (lst . keys)
+  (let (retval)
+    (while lst
+      (let ((hd (car lst)))
+	(if (or (and (not keys)
+		     (keywordp hd))
+		(memq hd keys))
+	    (set lst (cddr lst))
+	  (set lst (cdr lst)
+	       retval (append retval (list hd))))))
+    retval))
+
+
+;; Function for making pattern functions easily accessible from lisp code.
+;; Creates a lisp function which calls a given pattern function with the given arguments.
+;; The new function also takes keyword arguments :input & :files for the <input> & <files> arguments
+;; to match-fun.
+;; Arguments:
+;; patfunc - an unquoted pattern function symbol
+;; retval - if non-nil then this will be the return value of the function, otherwise the return value
+;;          is the same as for match-fun. This is useful if you are calling the function in an @(output) block
+;;          in which case the return value should be a string to be inserted into the output.
+;; newname - an unquoted symbol for the name of the new function, by default this is the original pattern function,
+;;           with a * at the end, e.g. if the pattern function is mypatfunc, then by default the new function will
+;;           be mypatfunc*
+(defmacro defpatfun (patfunc : retval (newname (intern (join (symbol-name patfunc) "*"))))
+  (if (match-fboundp patfunc)
+      (with-gensyms (args input files rval)
+		    ^(defun ,newname ,args
+		       (let* ((,input (prop ,args :input))
+			      (,files (prop ,args :files))
+			      (,rval (match-fun ',patfunc
+						(remove-keyword-args ,args :input :files)
+						,input ,files)))
+			 ,(or retval rval))))
+    (error (join "No such pattern function: " (symbol-name patfunc)))))
 

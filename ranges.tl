@@ -5,19 +5,15 @@
 
 ;; TODO!! Check how these work with 3-element ranges, e.g. 1..10..2 or infinite ranges, e.g 1..:..2 (all odd numbers),
 ;;        and char ranges, e.g. #\a..#\z
+;; TODO: define syntactic places for start, end & stepsize of ranges
 
 ;; Some extra range functions (put them in a separate package)
 
-;; rfrom, rto & rstep extract the start, end and stepsize of their range argument (if there is one),
-;; treating : as 0 when at the start of a range. rstep* is like rstep except that a stepsize is
-;; always returned, so e.g. (rstep 1..5) returns 1, (rstep 5..1) returns -1, & (rstep 5..5) returns 0.
-;; rset returns a new range which is an altered version of the input range, its optional arguments are
-;; the start, end and stepsize to overwrite the old range. To specify : for the end (i.e. infinity),
-;; use any non-nil symbol. If the stepsize arg is nil then the returned range will have no stepsize
-;; (even if the original did).
-;; TODO: define syntactic places for start, end & stepsize of ranges
+;; Extract the start of a range object (: at start is treated as 0)
 (defun rfrom (r) (let ((fr (from r))) (if (eq fr :) 0 fr)))
+;; Extract the end of a range object
 (defun rto (r) (if (rangep (to r)) (from (to r)) (to r)))
+;; Extract the stepsize of a range object
 (defun rstep (r) (let ((tr (to r)))
 		   (when (rangep tr)
 		     (let ((s (to tr)))
@@ -25,10 +21,14 @@
 			   (if (less (rfrom r) (from tr))
 			       1 -1)
 			 s)))))
+;; Extract the stepsize of a range object, even for simple ranges with stepsize 0/1/-1, e.g. 10..10/0..10/10..0
 (defun rstep* (r) (or (rstep r)
 		      (let ((fr (rfrom r)))
 			(signum (- (ifa (eq (to r) :) (+ fr 1) it)
 				   fr)))))
+;; Alter the start, end or stepsize of a range object, and return the result.
+;; To set the end to : (i.e. infinity) use any non-nil symbol.
+;; If the stepsize arg is explicitly set to nil then the returned range will have no stepsize (even if the original did).
 (defun rset (r : fr tr (s nil sp))
   (set fr (or fr (from r))
        tr (if tr
@@ -38,26 +38,23 @@
     (rcons fr (let ((st (rstep r)))
 		(if st (rcons tr st) tr)))))
 
-;; rrev reverses its range argument, rrevp tests if a range is reversed,
-;; and rrev* is an idempotent version of rrev; it reverses its range argument only if it is unreversed
-;; (i.e. if "from" endpoint > "to" endpoint), or vice-versa if the unrev arg is non-nil. If a range
-;; has a step size (e.g. 1..10..2) then the step size will be negated when it is reversed.
+;; Test if a range object is reversed.
+(defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
+			   (> (car l) (or (cadr l) (car l))))))
+;; Reverse a range object (stepsize will be negated).
 ;; NOTE: ranges that have : as an endpoint will have their endpoints swapped around as with other ranges.
 ;;       This means that, unlike ranges without : endpoints, the "reverse" of such a range corresponds to
 ;;       a list which is not necessarily the reverse of the list corresponding to the original range.
-;; rlen returns the length of its range argument, or : if it is an infinite range.
-;; All 4 functions return nil with an input of nil.
-(defun rrevp (r) (when r (let ((l (take 2 (rlist r)))) ;; this method works for all range types (e.g. 0..:..-1)
-			   (> (car l) (or (cadr l) (car l))))))
-
+;;       (since a : at the start of a range object indicates 0 not infinity)
 (defun rrev (r) (when r (if (rangep (to r))
 			    (rcons (from (to r))
 				   (rcons (from r) (- (to (to r)))))
 			  (rcons (to r) (from r)))))
+;; Idempotent version of rrev: reverse a range object only if it's unreversed, or vice-versa if unrev is non-nil.
 (defun rrev* (r : unrev) (if (rrevp r)
 			     (if unrev (rrev r) r)
 			   (if unrev r (rrev r))))
-
+;; Return length of range object, or : if it is infinite.
 (defun rlen (r) (symacrolet ((tr (to r)) (ftr (from (to r)))
 			     (fr (from r)) (ttr (to (to r))))
 			    (cond ((null r) r)
@@ -98,17 +95,18 @@
 		   (uniq (sort n)))))
 	  (reverse (car (fn nil r n)))))))
 
-;; return a list of all ends points of ranges in args, ignoring nil values
+;; Return a list of all ends points of ranges in args, ignoring nil values
+;; (this is used by rmin,rmax, & rspan)
 (defun rends args
   (let ((args2 (remq nil args)))
     (remq nil (nconc (mapcar (opip from (if (eq @1 :) 0 @1)) args2)
 		     (mapcar (chain 'to (iffi 'rangep 'from)) args2)))))
 
-;; rmin & rmax return the smallest and largest endpoints of the ranges supplied in args,
-;; and rspan returns a single range spanning all its args.
-;; args may contain nil values which will be ignored.
+;; Return the smallest endpoint of the ranges supplied as args (nil values in args will be ignored).
 (defun rmin args (apply 'min (apply 'rends args)))
+;; Return the largest endpoint of the ranges supplied as args (nil values in args will be ignored).
 (defun rmax args (apply 'max (apply 'rends args)))
+;; Return a single range spanning all its args (which should be ranges. nil values will be ignored).
 (defun rspan args
   (let ((ends (apply 'rends args)))
     (rcons (apply 'min ends) (apply 'max ends))))
@@ -116,7 +114,6 @@
 ;; rolap returns 'left / 'right if r1 is to the left/right of r2 without overlap,
 ;; 'olapl / 'olapr if r1 overlaps r2 to the left/right, 'within / 'contains if r1 is within / contains r2,
 ;; and 'equal if they are the same. Note: stepsizes are ignored, only the endpoints are taken into consideration.
-;;
 ;; TODO: write another function rolap* which takes stepsizes into account? (tricky when stepsizes differ).
 (defun rolap (r1 r2)
   (let ((f1 (rfrom r1)) (t1 (rto r1))
@@ -220,10 +217,10 @@
 	  (nconc (reverse (second finalres)) (third finalres)))))
 
 ;; Return a list of range objects covering exactly the same elements as the input list (including repetitions)
-;; in the same order, so that (opip listr (ap rlist)) is equivalent to the identity function on lists of integers.
+;; in the same order, so that (chain 'listr (ap rlist)) is equivalent to the identity function on lists of integers.
 ;; The input list may also contain ranges which will be treated appropriately.
-;; Note: (opip (ap rlist) listr) is not necessarily the identity on lists of ranges because the numbers could
-;; group differently, e.g. 1..5 6..10 -> 1..10.
+;; Note: (chain (ap rlist) 'listr) is not necessarily the identity on lists of ranges because the numbers could
+;; group differently, e.g. '(#R(1 5) #R(6 10)) -> '(#R(1 10))
 ;; TODO: make this work with char ranges
 (defun listr (lst)
   (let* ((sigfn (op apply (if (rrevp @1) '- '+) @rest))
@@ -236,7 +233,9 @@
 				  (if (typecase b
 					(number (= 1 (abs (- b h))))
 					(range (or (= (from b) [sigfn b h 1])
-						   [r1p b (- h 1)])))
+						   [r1p b (- h 1)] 
+						   ;;[r1p b (+ h 1)] not needed (covered by first part of or clause)
+						   )))
 				      [accum h..(if (rangep b) (to b) b)]
 				      (cons b [accum h..h])))
 				 (range
@@ -288,19 +287,49 @@
 ;; slice a list by indices in a range, single number, a list of ranges & numbers, or a predicate function.
 ;; Negative indices count backwards from the end of the list, e.g. (slice-list (range 0 10) -2) = 9,
 ;; but indices whose absolute value is greater than or equal to the list length are ignored.
-;; NOTE: unlike range indexing with dwim brackets, endpoints are included.
+;; NOTE: unlike range indexing with dwim brackets, endpoints are included, and unlike the select function
+;;       the indices do not need to be in order, and the return results will be in the same order as the
+;;       input indices.
+;; Arguments:
+;;  lst - the list to be sliced
+;;  idxs - the slice indices, either a single number, a range object (can have : endpoints and stepsize),
+;;         a vector of integers, a predicate function which returns non-nil for elements of lst to be returned,
+;;         or a list containing any combination of the previous types.
+;; Return value: a subsequence of the input list (lst)
 (defun slice-list (lst idxs)
   (typecase idxs
     (number (let ((x [lst idxs])) (when x (list x))))
     (range (let* ((isrev (rrevp idxs))
-		  (ids (if isrev (rrev idxs) idxs))
-		  (fr (from ids)) (to (to ids)))
+		  (ids (if (and isrev (eq (rto idxs) :))
+			   ;;backward infinite range needs special treatment
+			   (let ((l (length lst))
+				 (s (rstep* idxs))
+				 (f (rfrom idxs)))
+			     (+ (* (ceil (/ (+ f l) s)) s -1) f)..f..(- s))
+			 (rrev* idxs t)))
+		  (fr (rfrom ids))
+		  (to (ifa (eq (rto ids) :) (length lst) it)) ;; what about backward infinite ranges, e.g. 1..:..-1 ?
+		  (step (rstep* ids)))
 	     [(if isrev 'reverse 'identity)
 	     (if (= (signum fr) (signum to))
-		 [lst fr (+ 1 to)]
-		 (append [lst fr 0] [lst 0 (+ 1 to)]))])) ;dont use nconc here
+		 (if (> step 1)
+		     [lst (rlist ids)]
+		     [lst fr (+ 1 to)])
+	       (if (> step 1)
+		   (let ((ids2 (rlist fr..to..step)))
+		     (format t "step = ~a, lst = ~a, ids2 = ~a\n" step lst ids2) ;DEBUG
+		     (let ((idx1 (keep-if (op > 0) ids2))
+			   (idx2 (keep-if (op <= 0) ids2)))
+		       (format t "lst = ~a, idx1 = ~a, idx2 = ~a, res1 = ~a, res2 = ~a\n"
+			       lst idx1 idx2 (select lst idx1) (select lst idx2)) ;DEBUG
+		       (append (select lst idx1) (select lst idx2))
+		       ))
+		 (append [lst fr 0]
+			 [lst 0 (+ 1 to)])))])) ;dont use nconc here
     (list (mappend (op slice-list lst) ;; indexing with ranges is usually faster than indexing with numbers
-		   (listr (flatten idxs))))
+		   (listr (flatten (mapcar (iffi 'vectorp 'list-vec 'identity)
+					   idxs)))))
+    (vec [lst idxs])
     (sym (if (symbol-function idxs)
 	     (slice-list lst (symbol-function idxs))
 	   (throwf 'type-error "Invalid type for idxs arg ~a" idxs)))

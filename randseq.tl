@@ -5,8 +5,8 @@
 ;;   rndints* - creates an iterator of random integers that can be accessed with seq-next
 ;; Read the documentation below for further details (function arguments etc.)
 
-(load "seqxtra")
-(load "arglistxtra")
+(unless (find-package "seqxtra") (load "seqxtra"))
+(unless (find-package "arglistxtra") (load "arglistxtra"))
 (defpackage randseq (:fallback usr seqxtra arglistxtra))
 (in-package randseq)
 
@@ -343,9 +343,9 @@
 ;; random integers between 5 & 20 (using the seq-next function), whereas (rndint 5..20)
 ;; returns a single value between 5 & 20.
 (mapcar (lambda (sym)
-	  (let* ((symname (cat-str (list "rnd" (symbol-name sym))))
+	  (let* ((symname (append "rnd" (symbol-name sym)))
 		 (fnorig (intern symname))
-		 (fnnew1 (intern (cat-str (list symname "*"))))
+		 (fnnew1 (intern (append symname "*")))
 		 (fnnew2 (intern (sub-str symname 0 -1))))
 	    (eval ^(defun ,fnnew1 args (seq-begin (apply ',fnorig args))))
 	    (eval ^(defun ,fnnew2 args (car (take 1 (apply ',fnorig args)))))))

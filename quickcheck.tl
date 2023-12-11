@@ -1,7 +1,7 @@
 ;; Various macros and functions for testing & profiling code
 
 
-(load "randseq")
+(unless (find-package "randseq") (load "randseq"))
 (defpackage quickcheck (:fallback usr randseq))
 (in-package quickcheck)
 
@@ -23,6 +23,21 @@
 (defmacro stest (expr expected) ^(vtest ,^(tostring ,expr) ,expected))
 
 (defmacro mtest (. pairs) ^(progn ,*(mapcar (op cons 'test) (tuples 2 pairs))))
+
+;; Useful for debugging macros
+(defmacro showenv (: (e1 nil x) :env e0)
+  ^(labels ((s (e)
+	       (when e
+		 (let ((f (env-fbindings e))
+		       (v (env-vbindings e))
+		       (n (env-next e)))
+		   (when f (format t "fbindings: ~a\n" f))
+		   (when v (format t "vbindings: ~a\n" v))
+		   (when n (format t "next env: ~a\n" n))
+		   (s n)))))
+     ,(if x
+	  (if e1 ^(s ',e1) ^(pprinl "Empty env"))
+	(if e0 ^(s ',e0) ^(pprinl "Empty env")))))
 
 ;; some basic stats functions
 (defun mean args (/ (sum args) (length args)))
@@ -57,36 +72,89 @@
                            places))
        ,orig)))
 
-;; Run the profiler on body n times, and if print is t print mean & variances of profiling info.
-(defmacro profn (n print . body)
+;; Run an sexp multiple times and return means & standard deviations of timings & memory usage.
+;; Arguments:
+;; iters - number of times to run code being profiled.
+;; print - whether or not to print the results in a formatted table.
+;; reps - number of times that body should be repeated within each iteration (default = 1).
+;;        This is useful for profiling fast builtin functions.
+;; body - the code to be profiled.
+;; The final means and standard deviations are calculated from the timings & memory usage
+;; of each iteration, not each repetition.
+(defmacro profn (iters reps print . body)
   (with-gensyms (times mbytes gcbytes res)
 		^(let* (,times ,mbytes ,gcbytes ,res)
-		   (dotimes (i ,n)
-		     (set ,res (prof ,*body))
-		     (lpush ,mbytes ,gcbytes ,times (sub-list ,res 1 4)))
+		   ,(if reps
+			^(dotimes (i ,iters)
+			   (set ,res (prof (dotimes (j ,reps) ,*body)))
+			   (lpush ,mbytes ,gcbytes ,times
+				  (sub-list ,res 1 4)))
+			^(dotimes (i ,iters)
+			   (lpush ,mbytes ,gcbytes ,times
+				  (sub-list (prof ,*body) 1 4))))
 		   (when ,print
 		     (format t "~12a   ~15a ~15a\n" "Quantity" "Mean" "Stdev")
-		     (mapdo (op format t "~12a : ~15,1f ~15,1f\n"
+		     (mapdo (op format t "~12a : ~15,6f ~15,6f\n"
 				@1 (apply 'mean @2) (apply 'stdev @2))
 			    '("Runs" "Time (ms)" "Malloc-bytes" "gc-bytes")
-			    (list (pad nil ,n ,n) ,times ,mbytes ,gcbytes)))
+			    (list (pad nil ,iters ,iters) ,times ,mbytes ,gcbytes)))
 		   (tuples 2 (maprod (op apply @2 @1)
 				     (list ,times ,mbytes ,gcbytes)
 				     '(mean stdev))))))
 
-;; Run the profiler n times on each function in fnlst (an unquoted list) with the same
-;; args supplied to each call, and report results. The elements of fnlst can be symbols
-;; representing functions, lambda forms, or other forms which return functions (op, ip, ret, etc).
-(defmacro proffns (n fnlst . args)
+;; Function to print a table containing some data.
+;; TODO: output formats - orgmode, html, latex, markdown: https://www.markdownguide.org/extended-syntax#tables
+;; TODO: use outputtables.txr for this
+;; TODO: handle data arg in csvdata struct form
+(defun printtbl (:key data -- (format "org") title colnames rownames ostream transpose)
+  (unless (match-fboundp 'orgTable)
+    (load "outputtables.txr"))
+  (let ((maxwidths (mapcar (op apply 'max (mapcar (opip tostring length) @1))
+			   data))
+	(tblfunc (intern (join format "Table"))))
+    (when colnames (upd maxwidths (op mapcar 'max @1 colnames)))
+    (if (match-fboundp tblfunc)
+	(match-fun tblfunc (list data title colnames rownames ostream))
+      (error (format nil "Unable to find ~a function" tblfunc)))
+    )
+  )
+
+
+;; Call a function multiple times with different sets of arguments, and return means & standard deviations
+;; of timings & memory usage.
+;; Arguments:
+;; iters - number of times to run code being profiled for each set of arguments.
+;; print - whether or not to print the results in a formatted table.
+;; reps - number of times that the function should be called within each iteration (default = 1).
+;;        This is useful for profiling fast builtin functions.
+;; fn - the function being profiled (either a symbol or an sexp which evaluates to a function)
+;; args - lists of arguments to be tested & compared in results.
+;; (defmacro profargs (iters reps print fn . args)
+;;   (mapcar (profn ??)
+;; 	  args)
+;;   )
+
+;; Run the profiler multiple times on each function in fnlst (an unquoted list) with the same
+;; args supplied to each call, and report means & standard deviations of timings & memory usage.
+;; Arguments:
+;; iters - number of times to run code being profiled.
+;; fnlist - a list of functions (either symbols or sexps which evaluate to functions).
+;; print - whether or not to print the results in a formatted table.
+;; reps - number of times that each function call should be repeated within each iteration (default = 1).
+;;        This is useful for profiling fast builtin functions.
+;; The final means and standard deviations are calculated from the timings & memory usage
+;; of each iteration, not each repetition.
+(defmacro proffns (iters reps fnlst . args)
   (with-gensyms (stats cwidths hline cmplxs fnnames)
-		^(let* ((,stats (list ,*(mapcar (ret ^(profn ,n nil
-							     (apply ,(if (symbolp @1)
-									 ^(quote ,@1)
-									 @1)
-								    (list ,*args))))
-						fnlst)))
+		^(let* ((,stats (list ,*(mapcar
+					 (ret ^(profn ,iters ,reps nil
+						      (apply ,(if (symbolp @1)
+								  ^(quote ,@1)
+								  @1)
+							     (list ,*args))))
+					 fnlst)))
 			(,fnnames ',(mapcar (ret (if (symbolp @1) (symbol-name @1)
-						   (cat-str (list "func" (tostring @2)))))
+						   (append "func" (tostring @2))))
 					    fnlst (range 1 (len fnlst))))
 			(,cwidths (mapcar (op apply max (length @1)
 					      (mapcar (opip tostring length) (flatten @2))) 
@@ -106,32 +174,34 @@
 				(format t "~*a | " (nth j ,cwidths) (fmt (if (= j best) "*~a" "~a")
 									 (nth 0 (nth j s)))))
 			      (format t "\n~18a : " (fmt "Stdev ~a" statname))
-			      (mapdo (op format t "~*a | " @1 (fmt "(~,1f)" (nth 1 @2))) ,cwidths s)
+			      (mapdo (op format t "~*a | " @1 (fmt "(~,2f)" (nth 1 @2))) ,cwidths s)
 			      (format t "\n~a\n" ,hline)))
 			  '("time (ms)" "malloc-bytes" "gc-bytes") '(0 1 2))
 		   (format t "~a" ,hline)
-		   (mapdo (ret (format t "\n~18a : " @2)
-			       (mapdo (ret (format t "~*a | " @1 (and @2 (fmt "~,1f" @2))))
-				      ,cwidths
-				      (mapcar (op prop @1 @@1) ,cmplxs)))
+		   (mapdo (ret (progn
+				 (format t "\n~18a : " @2)
+				 (mapdo (ret (format t "~*a | " @1 (and @2 (fmt "~,1f" @2))))
+					,cwidths
+					(mapcar (op prop @1 @@1) ,cmplxs))))
 			  '(:nlines :nfrms :maxdepth)
 			  '("No. of lines" "No. of forms" "Max depth"))
 		   (format t "\n~a\n" ,hline))))
 
 ;; Run proffns separately for each element of args. Each element of args should be an
 ;; unquoted list of arguments to use for that particular run.
-(defmacro proffns* (n fnlst . args)
-  ^(progn ,*(mapcar (lambda (arg) ^(proffns ,n ,fnlst . ,arg)) args)))
+(defmacro proffns* (iters reps fnlst . args)
+  ^(progn ,*(mapcar (lambda (arg) ^(proffns ,iters ,reps ,fnlst . ,arg)) args)))
 
 (defun fncomplexity (fn)
   (let* ((fn2 (if (symbolp fn) (symbol-function fn) fn))
 	 (frm (if (interp-fun-p fn2) (func-get-form fn2) fn2)))
-    (when frm (list :nlines (length (spl "\n" (tostring frm)))
-		    :nfrms (- (length (spl "(" (tostring frm))) 1)
-		    :nsyms (length (flatcar frm))
-		    :maxdepth (maxdepth frm)
-		    :avgdepth (apply 'mean (formdepths frm))
-		    :avgsamedepth (apply 'mean (runlengths (formdepths frm)))))))
+    (when (listp frm)
+      (list :nlines (length (spl "\n" (tostring frm)))
+	    :nfrms (- (length (spl "(" (tostring frm))) 1)
+	    :nsyms (length (flatcar frm))
+	    :maxdepth (maxdepth frm)
+	    :avgdepth (apply 'mean (formdepths frm))
+	    :avgsamedepth (apply 'mean (runlengths (formdepths frm)))))))
 
 ;; Turn a cons cell into a list, e.g. '(1 . 2) -> '(1 2)
 (defun uncons (lst) (let ((l (last lst))) (when (cdr l) (set (last lst) (list (car l) (cdr l)))) lst))
@@ -200,14 +270,21 @@
 ;; func-get-info returns a list of the following information about its function or otherwise callable argument:
 ;; its type: regex, seq (a list, string, lazy string or vector), hash, interpreted or intrinsic (function)
 ;; number of required args, number of optional args, and whether or not the function is variadic (allows any number of args).
+;; Note: the returned info might not be accurate for intrinsic functions created from combinators, e.g. (andf 'seqp 'listp)
+;; In that case use the "numargs" macro instead.
 (defun func-get-info (func)
+  (pprinl "FUNC-GET-INFO") ;;DEBUG
+  (showenv) ;;DEBUG
   (typecase func
+    (null (error "Invalid arg: ~a" func))
     (sequence (list 'seq 1 1 nil))
     (hash (list 'hash 1 1 nil))
     (regex (list 'regex 1 2 nil))
     (t (let* ((func2 (if (functionp func) func
 		       (if (symbolp func) (symbol-function func)
 			 (error "Invalid arg: ~a" func)))))
+	 (format t "func: ~a\n(typeof func): ~a\nfunc2: ~a\n"
+		 func (typeof func) func2) ;;DEBUG
 	 (if (interp-fun-p func2)
 	     (let ((src (func-get-form func)))
 	       ;; handle cases like (op rangep) which appear to be variadic but aren't really:
@@ -217,16 +294,18 @@
 		     (if (and (consp d)
 			      (eq 'dwim (car d))
 			      (eq 'sys:apply (cadr d)))
-			 (func-get-info (if (listp fn) (eval fn) fn))
+			 (func-get-info (if (listp fn) (eval fn) fn)) ;eval is for lambdas
 		       (list 'interpreted 0 0 t)))
 		 (let* ((args (cadr src))
 			(parts (partition* (butlastn 0 args) (op posq :))))
 		   (list 'interpreted (if (eq (car args) :) 0 (len (car parts)))
 			 (len (call (if (eq (car args) :) 'car 'cadr) parts))
 			 (true (cdr (last args)))))))
-	   (let ((p (fun-fixparam-count func2))
-		 (o (fun-optparam-count func2)))
-	     (list 'intrinsic (- p o) o (fun-variadic func2))))))))
+	   (if (functionp func2)
+	       (let ((p (fun-fixparam-count func2))
+		     (o (fun-optparam-count func2)))
+		 (list 'intrinsic (- p o) o (fun-variadic func2)))
+	     (error "Invalid arg: ~a" func)))))));; TODO: return nil if func2 isn't a function?
 
 ;; numargs takes a lisp form or symbol and returns a list containing the following information:
 ;; 1) The input type, one of - list (e.g. (op less 5)), lfun (flet function), var (let bound variable),
@@ -247,27 +326,57 @@
 ;; even if there may be required args in reality (note that macros op, do, lop & ldo create interpreted functions
 ;; and so they should be reported correctly in this case).
 
+;; TODO: builtin macros such as; flet labels defparm
+;; TODO: why doesn't this work: (flet ((fn1 (a b) a)) (symacrolet ((fn2 fn1)) (numargs fn2)))
+;;       - because (fun fn2) wont work because fun is a macro?
+;; TODO: return more info about how to call function, and whether its intrinsic or interpreted
 (defmacro numargs (frm :env e)
+  (pprinl "NUMARGS");;DEBUG
+  (eval ^(showenv ,e));;DEBUG
   (typecase frm
     (sym (let ((llc (lexical-lisp1-binding e frm)))
 	   (caseq llc
-		  (:symacro ^(let ((frm2 (equot ,frm)))
+		  (:symacro ^(let* ((frm2 (equot ,frm))
+				    (llc2 (lexical-lisp1-binding ,e frm2))) ;;TODO fix documentation after fixing this
+			       (format t "frm2: ~a\n" frm2);;DEBUG
 			       (typecase frm2
-				 (list (ifa (functionp (ignerr (eval frm2)))
-					    (cons 'symacro (cdr (func-get-info it)))
-					    '(symacro 0 0 nil)))
-				 (sym (ifa (ignerr (symbol-function frm2))
-					   (cons 'symacro (cdr (func-get-info frm2)))
-					   '(symacro 0 0 nil)))
-				 (t '(symacro 0 0 nil)))))
-		  (:var ^(if (functionp ,frm)
-			     (let ((i (func-get-info ,frm)))
-			       (list 'var (second i) (third i) (fourth i)))
-			   (list 'var 0 0 nil)))
-		  (:fun ^(let ((i (func-get-info (fun ,frm))))
-			   (list 'lfun (second i) (third i) (fourth i))))
-		  (t (if (macro-form-p ^(,frm) e) ;TODO: fix this for defvar & similar cases if possible
-			 (catch (macroexpand-1 ^(,frm) e)
+			       	 (list (pprinl "symacro list") ;DEBUG
+				       (ifa (functionp (ignerr (eval frm2)))
+					    (if (interp-fun-p it)
+						(cons 'symacro (cdr (func-get-info it)))
+					      (cons 'symacro (cdr (eval ^(numargs ,frm2)))))
+					    '(symacro 1 1 nil)))
+			       	 (sym (format t "symacro sym, type: ~a\n" llc2) ;DEBUG
+				      ;; (flet ((fn (a b : c d e . f) a)) (symacrolet ((fn2 fn)) (numargs fn2)))
+				      ;;** (expr-1298:1) unbound variable randseq:fn
+				      ;;** during evaluation of form (functionp randseq:fn)
+				      ;;** ... an expansion of (functionp randseq:fn2)
+				      (cons 'symacro
+					    (cdr (func-get-info
+						  (let ((frm3 (eval ^(fun ,frm2) ,e)))
+						    (format t "frm3: ~a, (typeof frm3): ~a\n" frm3 (typeof frm3));;DEBUG
+						    (caseq llc2
+							   (:symacro (format t "symacro\n")
+								     (equot frm2))
+							   (:var (format t "var\n")
+								 ;; try to extract frm2 from env?
+								 frm3)
+							   (:fun (format t "fun\n")
+								 frm3)
+							   (t frm2)))))))
+			       	 (sequence (pprinl "symacro sequence") ;DEBUG
+					   '(symacro 1 1 nil))
+			       	 (hash (pprinl "symacro hash") ;DEBUG
+				       '(symacro 1 1 nil))
+			       	 (regex (pprinl "symacro regex") ;DEBUG
+					'(symacro 1 2 nil))
+			       	 (t (pprinl "symacro t") ;DEBUG
+				    '(symacro 0 0 nil)))))
+		  (:var ^(cons 'var (cdr (func-get-info ,frm))))
+		  (:fun ^(cons 'lfun (cdr (func-get-info (fun ,frm)))))
+		  (t (if (macro-form-p ^(,frm) e) ;TODO: fix this for defvar, defparm & similar cases if possible
+			 (catch (progn (macroexpand-1 ^(,frm) e)
+				       ^(list 'macro 0 0 nil))
 			   (error (err)
 				  (let* ((str (search-regst err #/params \([^()]*\)/))
 					 (args (when str (split-str (sub-str str 7) " ")))
@@ -295,29 +404,37 @@
 		    (maxarg (lst) (let ((l (remq nil (mapcar (fun fn) lst))))
 				    (when l (apply 'max l)))))
 	     (cond ((memq fst '(f^$ f^ f$ dup)) '(list 'list 1 0 nil))
-		   ((eq fst 'flipargs ) '(list 'list 2 0 nil))
+		   ((eq fst 'flipargs) '(list 'list 2 0 nil))
 		   ((memq fst '(aret retf)) '(list 'list 0 0 t))
 		   ((memq fst '(do ldo)) ^(list 'list ,(or (maxarg frm) 1) 0 t))
 		   ((memq fst '(lop op))
-		    ^(let* ((i ',(eval (macroexpand-1 ^(numargs ,snd) e)))
+		    ^(let* ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))) ;TODO - make this a function in labels?
 			    (m ,(maxarg frm))
-			    (req (if m (if (< m ,i2) (- m ,i2) m) (- ,i2 ,(- (len frm) 2))))
-			    (opt (- (+ ,i2 ,i3) (max 0 req))))
-		       (list 'list (if ,i4 (max req 0) req) (if ,i4 (max opt 0) opt) ,i4)))
+			    (s ,(- (len frm) 2))
+			    (tot (+ ,i2 ,i3))
+			    (req (if m (if (< m ,i2) (- m ,i2) m)
+				   (if (<= s ,i2)
+				       (- ,i2 s)
+				     (if (or ,i4 (<= s tot))
+					 0
+				       (- tot s)))))
+			    (opt (if m 0 (let ((o (- tot s req)))
+					   (if ,i4 (max o 0) o)))))
+		       (list 'list req opt ,i4)))
 		   ((memq fst '(juxt notf iff iffi chain chand opip oand fun))
 		    ^(cons 'list (cdr (numargs ,snd))))
 		   ((memq fst '(apf ipf))
-		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e)))) ;TODO - make this a function in labels?
 		       (list 'list 1 (- (+ (second i) (third i)) 1) ,i4)))
 		   ((memq fst '(ap ip))
-		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e)))) ;TODO - make this a function in labels?
 		       (list 'list 1 (- (or ,(maxarg frm)
 					    (max 0 (- ,i2 ,(- (len frm) 2))))
 					1)
 			     ,i4)))
 		   ((memq fst '(ado ido))
-		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e))))
-		       (list 'list 1 ,(- (maxarg frm) 1) t)))
+		    ^(let ((i ',(eval (macroexpand-1 ^(numargs ,snd) e)))) ;TODO - make this a function in labels?
+		       (list 'list 1 ,(if (maxarg frm) (- (maxarg frm) 1) 0) t)))
 		   ((eq fst 'callf)
 		    ^(let* ((info (remq nil
 					(list (when ,(third frm) (numargs ,(third frm)))
@@ -370,6 +487,7 @@
 					 ^(op ,fn)))
 				 (sym ,(when (symbolp fn) ^(quotesym ,fn))) ;; op prevents warnings
 				 ;; TODO!!! (have tried in vain. Is it possible to handle macros properly?)
+				 ;; add macro to environment of further call? see notes from Kaz
 				 (macro (error "Cannot handle macro argument!"))
 				 (t ,fn))
 			  ,args2))))

@@ -1,8 +1,8 @@
 ;; Unit tests for quickcheck
 
-(load "quickcheck.tl")
+(unless (find-package "quickcheck") (load "quickcheck"))
 (use-package "quickcheck")
-(load "ranges.tl")
+(unless (find-package "ranges") (load "ranges"))
 (use-package "ranges")
 
 (pprinl "0: PASS TEST: (fun fn1)")
@@ -27,12 +27,14 @@
 (catch (quickcheck 5 (rto 1..4) 'rangep)
   (error (err . rest) (format t "~s\n" err)))
 (pprinl "9: PASS TEST: symacrolet (and t results)")
-(symacrolet ((foo (and t results))) (quickcheck 3 (rto 1..4) foo))
+(symacrolet ((foo (and t results))) (quickcheck 2 (rto 1..4) foo))
 (pprinl "10: FAIL TEST: symacrolet (and t results nil)")
 (catch (symacrolet ((foo (and t results nil))) (quickcheck 3 (rto 1..4) foo))
   (error (err . rest) (format t "~s\n" err)))
 (pprinl "11: PASS TEST: symacrolet (fn1 results)")
-(symacrolet ((foo (fn1 results))) (flet ((fn1 (a) a) (fn2 (a b) nil)) (quickcheck 3 (rto 1..4) foo)))
+(symacrolet ((foo (fn1 results)))
+	    (flet ((fn1 (a) a) (fn2 (a b) nil))
+	      (quickcheck 3 (rto 1..4) foo)))
 (pprinl "12: PASS TEST: (op integerp)")
 (quickcheck 3 (rto 1..4) (op integerp))
 (pprinl "13: FAIL TEST: (op rangep)")

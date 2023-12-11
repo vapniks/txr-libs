@@ -77,7 +77,7 @@
 
 (defun seq-iterp (arg) (eq (typeof arg) 'seq-iter))
 
-;; lcons-iter creates a lazy list from an iterator (to go the other way use seq-begin)
+;; lcons-iter creates a lazy list from an iterator (to go the other way use iter-begin)
 (defun lcons-iter (iter) (gen (ret t) (seq-next iter nil)))
 
 ;; iter-tuples creates an iterator that returns tuples of elements from the input sequence/iterator/range.

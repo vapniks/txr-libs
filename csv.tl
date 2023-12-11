@@ -1,6 +1,6 @@
-;;;; Useful lisp functions for data extraction using TXR
+;;;; Data structure for csv data
 
-(load "ranges")
+(unless (find-package "ranges") (load "ranges"))
 
 (defpackage csv (:fallback ranges usr))
 
@@ -8,18 +8,41 @@
 
 (defex csvdata-error type-error)
 
+;; csvdata structure
+;; To create a csvdata object: (new (csvdata <NCOLS> <HEADERS> <DATA> ...))
+;; where <NCOLS> is an integer, <HEADERS> is a list of strings & <DATA> is a list of lists.
+;;
+;; Given a csvdata object <OBJ>, slices of the data can be viewed using dwim brackets, e.g:
+;;    [<OBJ> <ROWIDS> <COLIDS>]
+;; or one line per row using the printdata method:
+;;    <OBJ>.(printdata <ROWIDS> <COLIDS>)
+;; The printdata method takes extra optional args, e.g. to pretty print without a header:
+;;    <OBJ>.(printdata <ROWIDS> <COLIDS> nil t)
+;; You can alter data like this:
+;;    (set [<OBJ> <ROWIDS> <COLIDS>] <VALS>)
+;;
+;; In all cases above <ROWIDS> can be: a single row number, a range object,
+;; a list of integers &/or range objects, a predicate function (which takes a single row/list as argument),
+;; or a quoted sexp which may make use of variables $0,$1,$2,... or $COLNAME1,$COLNAME2,...
+;; containing fields of the current row, e.g: '(< $1 $2)
+;; <COLIDS> is optional and can be a single column number, a range object, a symbol or string containing a column name
+;; (as stored in the header), a regexp matching some column names, or a list of any of the previous types,
+;; e.g: '(0 1..4 "col5" 'col6 #/col[789]/)
+;; 
+;; See comments in code below for info on other methods (e.g. sort, writefile, append, delete)
 (defstruct (csvdata ncols : headers data sep fmtstr quote trim fmtstr keyfn) nil
 	   (ncols 0) headers data (sep ",")
 	   quote ;; whether to quote fields or not when printing
 	   trim ;; whether to trim fields or not when printing
 	   fmtstr ;; for printing the csvdata (if nil then default format string used)
 	   keyfn ;; keyfun arg of the unique function, or nil if rows don't need to be unique
+	   printnils ;; whether to print nil values as "nil" or just leave them blank	   
 	   (:static pprint t) ;; whether to pretty print by default in the REPL
 	   ;; (negates pretty-p arg of self.print, but doesn't affect printdata or writefile)
 	   (:static nprintlines 20) ;; number of lines to print
 	   (:static maxhashsize 500) ;; maximum number of hash entries allowed (to avoid using too much memory)
 	   ;; TODO
-	   (:postinit (self) ;; on initialization check for bad rows and uniquify if necessary
+	   (:postinit (self) ;; on initialization (after :init forms) check for bad rows and uniquify if necessary
 		      ;; TODO
 		      ;; (let ((badrows self.(invalidRows self.data t)))
 		      ;; 	(if badrows
@@ -49,13 +72,16 @@
 			  (throwf 'csvdata-error "Attempting to append invalid rows: ~a" badrows)
 			(progn
 			  (set self.data (append self.data newrows))
+			  ;; TODO: do we really want to uniquify unconditionally?
 			  (when self.keyfn self.(uniquify))))))
 	   (:method compatp (self obj) ;; check if another csvdata object is compatible with this one
 		    (and (structp obj)
 			 (eq (struct-type obj) (struct-type self))
 			 (= obj.ncols self.ncols)))
-	   ;; memoize the colwidths. Reset each time csvdata is altered
-	   ;; TODO: fix this to work better with ranges
+	   ;; TODO: fix this to work better when rowids is a range object
+	   ;; (by checking if its a superset of another range in the hash, using something like range-tree: https://en.wikipedia.org/wiki/Range_tree)?
+	   ;; Return the maximum width of the entries in the given rows of column n (to help formatting output).
+	   ;; Return values are memoized in the %memo% hash, which is reset whenever the data is altered.
 	   (:instance %memo% (make-hash nil nil t))
 	   (:method colwidth (self n : (rowids 0..(- self.(length) 1)))
 		    (when (or (test-dirty self)
@@ -67,6 +93,9 @@
 				    rowids)))
 		      (when (< n self.ncols)
 			(or (gethash self.%memo% (list n rowids))
+			    (keep-if (ret (and (= (car @1) n)
+					       (in-range rowids (from (cdr @1)))))
+				     (hash-keys self.%memo%))
 			    (sethash self.%memo% (list n rowids)
 				     (apply 'max (mapcar
 						  (opip car tostringp length)
@@ -78,23 +107,26 @@
 	   ;; pretty-p = if non-nil then ignore self.fmtstr, make column widths fit fields exactly,
 	   ;;            and add a column to hold row numbers
 	   ;; stream   = output stream
-	   ;; Note: indexing with ranges is python-style - the end value is not included.	   
+	   ;; Note: indexing with ranges is python-style - the end value is not included.
+	   ;; TODO: make use of self.(torowids) & self.(tocolids)
 	   (:method printdata (self : rowids colids (inchead t) pretty-p (stream *stdout*))
 		    (let* ((rx (regex-compile ^(or ,self.sep "|\"")))
 			   (fieldquotedp (ret (= #\" (chr-str @1 0)
 						 (chr-str @1 (- (length @1) 1)))))
 			   (badfieldp (andf 'stringp rx (notf fieldquotedp)))
-			   (quotefield (op cat-str (list "\"" @1 "\"")))
-			   (fixbadfield (iffi badfieldp quotefield))
+			   (quotefield (op append "\"" @1 "\""))
+			   (fixnil (if self.printnils 'identity (iffi 'null (ret ""))))
+			   (fixbadfield (iffi badfieldp quotefield fixnil))
 			   (procfield (cond ((and self.trim self.quote)
-					     (chain 'tostringp 'trim-str quotefield))
-					    (self.quote (chain 'tostringp quotefield))
-					    (self.trim (chain 'tostringp 'trim-str fixbadfield))
+					     (chain fixnil 'tostringp 'trim-str quotefield))
+					    (self.quote (chain fixnil 'tostringp quotefield))
+					    (self.trim (chain fixnil 'tostringp 'trim-str fixbadfield))
 					    (t fixbadfield)))
 			   (rowids (or rowids 0..(- self.(length) 1)))
 			   rowids2
-			   (colids (slice-list (rlist 0..(- self.ncols 1))
-					       (or colids 0..(- self.ncols 1))))
+			   (colids (if colids
+				       (slice-list (rlist 0..(- self.ncols 1)) colids)
+				     (rlist 0..(- self.ncols 1))))
 			   (headers (if self.headers (slice-list self.headers colids)))
 			   (rows [self rowids colids])
 			   (fmtstr (cat-str
@@ -105,31 +137,31 @@
 				     '("\n"))))
 			   (printline (ret (opip (mapcar procfield @1)
 						 (apply 'format @@1 fmtstr)))))
-		      (if pretty-p
-			  (set rowids2 (typecase rowids
-					 (range (rlist rowids))
-					 (list rowids)
-					 (number (list rowids))
-					 (t (range* 0 self.(length))))
-			       fmtstr (cat-str (list "~"
-						     (tostring
-						      (max 3
-							   (length
-							    (tostring
-							     (apply 'max rowids2)))))
-						     "a: "
-						     (cat-str
-						      (interpose
-						       self.sep
-						       (mapcar (op cat-str
-								   (list "~"
-									 (tostring
-									  (+ 2 self.(colwidth @1 rowids2)))
-									 "a"))
-							       colids)))
-						     "\n"))
-			       printline (ret (opip (cons @2 (mapcar procfield @1))
-						    (apply 'format @@1 fmtstr @1)))))
+		      (when pretty-p
+			(set rowids2 (typecase rowids
+				       (range (rlist rowids))
+				       (list rowids)
+				       (number (list rowids))
+				       (t (range* 0 self.(length))))
+			     fmtstr (append "~"
+					    (tostring
+					     (max 3
+						  (length
+						   (tostring
+						    (apply 'max rowids2)))))
+					    "a: "
+					    (cat-str
+					     (interpose
+					      self.sep
+					      (mapcar (op cat-str
+							  (list "~"
+								(tostring
+								 (+ 2 self.(colwidth @1 rowids2)))
+								"a"))
+						      colids)))
+					    "\n")
+			     printline (ret (opip (cons @2 (mapcar procfield @1))
+						  (apply 'format @@1 fmtstr @1)))))
 		      (when (and inchead headers)
 			[[printline stream] headers "row"])
 		      (if pretty-p
@@ -148,7 +180,7 @@
 	   (:method writefile (self file : append rowids colids)
 		    (with-stream (fstr (open-file file (if append "a" "w")))
 				 self.(printdata rowids colids (if append nil t) nil fstr)))
-	   (:method nrows (self) (length self.data))
+	   (:method nrows (self) (length self.data)) ;;TODO: this should be a variable like ncols (or ncols should be a function)
 	   (:method length (self) (length self.data))
 	   (:method filesize (self)
 		    (apply '+ (* self.(length) self.ncols)
@@ -161,71 +193,113 @@
 	   (:function from-list (lst) (new (csvdata (length (car lst)) nil lst)))
 	   ;; accessor/setter methods. Allow using csvdata object as a place function (see section 9.20.3 of manpage).
 	   ;; TODO: indexing method for picking out disjoint rectangles of data?
-	   ;; TODO : allow indexing colids using regexps
-	   (:method lambda (self rowids : colids) 
-		    (set colids (typecase colids
-				  (null 0..(- self.ncols 1))
-				  (range colids)
-				  (number colids)
-				  (string (posqual colids self.headers))
-				  (sym (posqual (symbol-name colids) self.headers))
-				  (list (mapcar (do typecase @1
-						  (range @1)
-						  (number @1)
-						  (string (posqual @1 self.headers))
-						  (sym (posqual (symbol-name @1) self.headers))
-						  (t @1))
-						(flatten colids)))
-				  (t colids))) ;; invalid types will be caught by slice-list
-		    (mapcar (op slice-list @1 colids)
-			    (slice-list self.data rowids))) ;; rowids handled by slice-list
+	   ;; TODO: check vector?
+	   (:method tocolids (self colids)
+		    (typecase colids ;; lazy lists not allowed (apart from ranges) since rlist might hang
+		      (null (range* 0 self.ncols))
+		      (range (rlist (if (eq (rlen colids) :)
+					1;;?? if range is infinite change endpoint 
+				      colids)))
+		      (number (list colids))
+		      (string (where (op equal colids) self.headers))
+		      (regexp (where colids self.headers))
+		      (sym (where (op equal (symbol-name colids)) self.headers))
+		      (list (mappend (iffi (andf 'rangep (op eq (rlen @1) :))
+					   (ret (throw "colids: infinite ranges not allowed in lists!"))
+					   (meth self tocolids))
+				     (flatten colids)))
+		      (t (throwf 'csvdata-error "Invalid colids arg ~a" colids))))
+	   (:method torowids (self rowids : allowpred)
+		    ;; if allowpred is non-nil, when rowids is a function or sexp then that will be returned,
+		    ;; otherwise (default case) the indices of rows of self.data matching the pred/sexp will be returned
+		    (typecase rowids
+		      (null (range* 0 self.(length)))
+		      (range (rlist rowids))
+		      (number (list rowids))
+		      (list (if (or (integerp (car rowids))
+				    (rangep (car rowids)))
+				(mappend (do typecase @1
+					   (range (if (eq (rlen @1) :)
+						      (throw "rowids: infinite ranges not allowed in lists!")
+						    (rlist @1)))
+					   (number (list @1))
+					   (t (throwf 'csvdata-error
+						      "Invalid rowids arg ~a" rowids)))
+					 (flatten rowids))
+			      ;; otherwise assume we have a quoted sexp
+			      (let* ( ;; create symbols from headers, replacing disallowed chars
+				     (hsyms (mapcar (opip (regsub #/[^a-zA-Z0-9!$%&*+\-<=>?\\~/]/ "_")
+							  intern)
+						    self.headers))
+				     ;; wrap sexp in a predicate for filtering the rows
+				     (pred (eval ^(do placelet
+						      ,(mappend
+							(op list
+							    ;; bind $0,$1,... to places in current row
+							    (list (intern (append "$" (tostring @2)))
+								  (list 'nth @2 '@1))
+							    ;; bind $colname1,$colname2,... to places in current row
+							    (list (intern (append "$" (tostring @1)))
+								  (list 'nth @2 '@1)))
+							hsyms
+							0..(length hsyms))
+						    ,rowids))))
+				(if allowpred
+				    pred
+				  (where pred self.data)))))
+		      (fun (if allowpred
+			       rowids
+			     (where rowids self.data)))
+		      (t (throwf 'csvdata-error "Invalid rowids arg ~a" rowids))))
+	   (:method lambda (self rowids : colids)
+		    (let ((rows (if rowids
+				    (slice-list self.data self.(torowids rowids t))
+				  self.data)))
+		      (if colids
+			  (let ((colids2 self.(tocolids colids)))
+			    (mapcar (op slice-list @1 colids2) rows))
+			rows)))
 	   (:method lambda-set (self rowids colids newdata) ;; TODO - allow negative indices, and regexps for colids?
-		    (let* ((rowids (typecase rowids
-				     (null (range* 0 self.(length)))
-				     (range (rlist rowids))
-				     (number (list rowids))
-				     (list (mappend (do typecase @1
-						      (range (rlist @1))
-						      (number (list @1))
-						      (t (throwf 'csvdata-error
-								 "Invalid rowids arg ~a" rowids)))
-						    (flatten rowids)))
-				     (t (throwf 'csvdata-error "Invalid rowids arg ~a" rowids))))
-			   (colids (typecase colids
-				     (null (range* 0 self.ncols))
-				     (range (rlist colids))
-				     (number (list colids))
-				     (string (posqual colids self.headers))
-				     (sym (posqual (symbol-name colids) self.headers))
-				     (list (mappend (do typecase @1
-						      (range (rlist @1))
-						      (number (list @1))
-						      (string (list (posqual @1 self.headers)))
-						      (sym (list (posqual (symbol-name @1) self.headers)))
-						      (t (throwf 'csvdata-error
-								 "Invalid colids arg ~a" colids)))
-						    (flatten colids)))
-				     (t (throwf 'csvdata-error "Invalid colids arg ~a" colids))))
-			   (rlen (length rowids))
-			   (clen (length colids)))
+		    (let* ((rowids2 self.(torowids rowids))
+			   (colids2 self.(tocolids colids))
+			   (rlen (length rowids2))
+			   (clen (length colids2)))
 		      (flet ((pad2 (d l) 
 				   (if (atom d)
 				       (pad nil d l)
 				     (pad d (car (last d))
 					  (- l (length d))))))
 			(set newdata (pad2 newdata rlen)) ;; pad new data with extra rows to fit rowids
-			(dotimes (i (length rowids))
-			  (let* ((oldrow (nth (nth i rowids) self.data))
-				 (newrow (pad2 (nth i newdata) clen)));; pad each row to fit colids
-			    (dotimes (j (length colids))
-			      (set (nth (nth j colids) oldrow)
-				   (nth j newrow)))))
+			(if colids ;; only loop over cols if we have to
+			    (dotimes (i (length rowids2))
+			      (let* ((newrow (pad2 (nth i newdata) clen))) ;; what if i is longer than newdata
+				(placelet ((oldrow (nth (nth i rowids2) self.data)))
+					  (dotimes (j (length colids2))
+					    (set (nth (nth j colids2) oldrow)
+						 (nth j newrow))))))
+			  (dotimes (i (length rowids2))
+			    (let* ((newrow (pad2 (nth i newdata) clen)))
+			      (placelet ((oldrow (nth (nth i rowids2) self.data)))
+					(set oldrow newrow)))))
 			;; make sure dirty bit is set 
 			(set self.ncols self.ncols))))
-	   (:method delete (self rowids colids)) ;TODO!!!
+	   (:method delete (self rowids : colids) 
+		    (let ((rowids2 (sort self.(torowids rowids)))
+			  (colids2 (sort self.(tocolids colids))))
+		      (cond ((null colids) ;; only remove rows
+			     (set self.data (reject self.data rowids2)))
+			    ((null rowids) ;; only remove cols
+			     (set self.data (mapcar (op reject @1 colids2) self.data)
+				  self.headers (reject self.headers colids2)
+				  self.ncols (length self.headers)))
+			    (t ;; otherwise set matching elements to nil
+			     self.(lambda-set (and rowids rowids2)
+					      (and colids colids2)
+					      nil)))))
 	   ;; TEST
 	   (:method sort (self : lessfn keyfn)
 		    (set self.data (sort self.data lessfn keyfn)))
+	   ;; TODO: iter-begin, iter-reset, iter-item, iter-step
 	   ;; (:method write ()) ;; write .csv data to file? 
 	   
 	   ;; (:method searchRows (self regex : cols)) ;; return rows which match regexp in columns cols (if missing, all columns), use find-if function?
@@ -253,8 +327,8 @@
 		    (cat-str (interpose sep header))
 		  (get-line stream)))
 	 (rownum (if header 0 1))
-	 (fieldrx (regex-compile ;; using a regex object here messes with emacs syntax highlighting
-		   "([^,\"\']*(\"([^\"]|\\\\\")*\"|\'([^\']|\\\\\')*\'|)[^,\"\']*)+"))
+	 (fieldrx (load-time (regex-compile ;; using a regex object here messes with emacs syntax highlighting
+			      "([^,\"\']*(\"([^\"]|\\\\\")*\"|\'([^\']|\\\\\')*\'|)[^,\"\']*)+")))
 	 (selpts (op select @2 (range* @1 (length @2) 2))) ;; extracts odd/even indexed entries of list
 	 (splitpts (chain (op sub (tok fieldrx t @1) 1 -1) 
 			  (juxt (op selpts 0) (op selpts 1))))
@@ -275,7 +349,7 @@
 	 (fieldfn (if (some fnlist) (apply 'chain (remq nil fnlist)))))
     (if [invalidp headerpts]
       (throw 'csvdata-error
-	     (cat-str (list (if header "Header" "First") " row is invalid")))
+	     (append (if header "Header" "First") " row is invalid"))
       (let* (data
 	     (rowdata (unless header (car headerpts)))
 	     (addrow (if fieldfn
@@ -300,3 +374,9 @@
   (with-stream (fstr (open-file file "r"))
 	       (read-csv-stream fstr :header header :sep sep :emptystr emptystr
 				:trim trim :unquote unquote :fixchars fixchars)))
+
+;; TODO: function for classifying rows of csvdata object based on rules supplied in json object
+;;(defun classify-csvdata (rules : colname))
+
+;; TODO: API for Apache Arrow: https://arrow.apache.org
+;;    e.g. have a look at this common lisp code: https://github.com/kat-co/cl-apache-arrow

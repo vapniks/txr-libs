@@ -3,7 +3,7 @@
 ;; In txr evaluate: (load "unit_tests.tl"),
 ;; or on the command line: txr unit_tests.tl
 
-(load "quickcheck.tl")
+(unless (find-package "quickcheck") (load "quickcheck"))
 (use-package "quickcheck")
 
 (let ((loadedpkgs (remq nil (mapcar (iff (chain 'cdr 'symbol-function) 'car 'nilf)
